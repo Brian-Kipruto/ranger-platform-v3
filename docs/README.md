@@ -11,12 +11,17 @@ The goal: anyone (including future-you) should be able to read this and understa
 ### `setup/`
 Step-by-step guides for getting a development environment running from a fresh Ubuntu install. Read these in order if you're setting up a new machine.
 
+- [`00-phase-1-retrospective.md`](./setup/00-phase-1-retrospective.md) — what we learned building Phase 1, what worked, what was harder than expected
 - [`01-system-prep.md`](./setup/01-system-prep.md) — Python 3.11, Node 20, Docker, GitHub SSH, project skeleton
 - [`02-services.md`](./setup/02-services.md) — PostgreSQL + Redis via Docker Compose, secrets, healthchecks
+- [`03-backend-scaffold.md`](./setup/03-backend-scaffold.md) — Django 5 backend with split settings, 13 apps, custom user + organization
+- [`04-frontend-scaffold.md`](./setup/04-frontend-scaffold.md) — React 19 + TypeScript + Vite + Tailwind v4 frontend
 
 
 ### `architecture/`
 Higher-level design documentation. The *why* behind the structural choices: split settings, multi-tenancy model, panel system, ROS bridge pattern, etc.
+
+- [`00-overview.md`](./architecture/00-overview.md) — three-tier system overview, app boundaries, data flow patterns, security architecture
 
 *(Coming as we build.)*
 
@@ -29,11 +34,15 @@ One markdown file per feature/phase, documenting end-to-end implementation. Each
 Architecture Decision Records (ADRs). Short, dated records of important technical choices. Format: problem → options considered → decision → consequences.
 
 - [`0001-postgres-in-docker-not-native.md`](./decisions/0001-postgres-in-docker-not-native.md) — Why we run PostgreSQL in Docker even though Ubuntu installed it natively
+- [`0002-multi-tenant-via-organization-fk.md`](./decisions/0002-multi-tenant-via-organization-fk.md) — Why we use a shared schema with `organization` FK, and Django Groups instead of a `role` enum
 
 ### `troubleshooting/`
 Error logs and fixes. Each entry records: what we saw, what caused it, how we fixed it, how to prevent it.
 
 - [`001-docker-permission-denied.md`](./troubleshooting/001-docker-permission-denied.md) — `permission denied while trying to connect to the Docker API` after fresh install
+- [`002-startapp-chicken-and-egg.md`](./troubleshooting/002-startapp-chicken-and-egg.md) — Django `startapp` fails when apps registered in `INSTALLED_APPS` don't exist yet, and the `AUTH_USER_MODEL` complication
+- [`003-tsconfig-baseurl-deprecated.md`](./troubleshooting/003-tsconfig-baseurl-deprecated.md) — TypeScript 6 deprecates `baseUrl`; use `paths` alone
+- [`004-vscode-paste-heredoc-leak.md`](./troubleshooting/004-vscode-paste-heredoc-leak.md) — Pasting heredoc-wrapped content from chat into VS Code includes the wrapper
 
 ---
 
