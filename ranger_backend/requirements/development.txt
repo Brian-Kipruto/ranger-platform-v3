@@ -1,0 +1,15 @@
+# ─── RANGER V3: Development dependencies ───
+-r base.txt
+
+# Debugging
+django-extensions==3.2.3
+ipython==8.31.0
+
+# Code quality
+ruff==0.8.4
+black==24.10.0
+
+# Testing
+pytest==8.3.4
+pytest-django==4.9.0
+pytest-asyncio==0.25.0

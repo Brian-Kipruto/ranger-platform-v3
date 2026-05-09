@@ -1,0 +1,23 @@
+# ─── RANGER V3: Core production dependencies ───
+
+# Framework
+Django==5.1.4
+djangorestframework==3.15.2
+
+# ASGI / Real-time
+daphne==4.1.2
+channels==4.2.0
+channels-redis==4.2.1
+
+# Database
+psycopg[binary]==3.2.3
+
+# Auth
+djangorestframework-simplejwt==5.3.1
+
+# Config
+django-cors-headers==4.6.0
+python-dotenv==1.0.1
+
+# Utilities
+Pillow==11.0.0
