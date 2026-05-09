@@ -317,13 +317,24 @@ Open `http://localhost:8000/admin/`, log in. You should see:
 
 Create a test Organization (e.g. "ByteAnza") to confirm forms work.
 
-### Daphne directly
+### Daphne directly (NOT for daily dev work)
 
 ```bash
 daphne -p 8000 ranger_backend.asgi:application
 ```
 
-Same `/admin/` should work. The difference vs `runserver`: no auto-reload on file changes (Daphne doesn't watch files). For dev work, `runserver` is more convenient. For testing what production-ish ASGI looks like, use Daphne directly.
+This starts standalone Daphne, but **the admin will appear unstyled** because Daphne doesn't serve static files. `runserver` includes a dev-only static file handler; bare Daphne does not.
+
+For day-to-day development, use `runserver` — it boots through Daphne anyway (because `daphne` is first in `INSTALLED_APPS`), so you get full ASGI/Channels/WebSocket support PLUS static file serving PLUS auto-reload on code changes.
+
+Use bare `daphne` only when:
+- Reproducing a production-only issue
+- Measuring cold-start time without the reloader
+- Testing the exact ASGI startup sequence
+
+In production, neither approach handles statics — nginx (or another reverse proxy) serves `/static/` and proxies everything else to Daphne behind it.
+
+See [`troubleshooting/005-daphne-no-static-files.md`](../troubleshooting/005-daphne-no-static-files.md) for full detail.
 
 ---
 

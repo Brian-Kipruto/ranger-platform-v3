@@ -43,6 +43,7 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 - [`002-startapp-chicken-and-egg.md`](./troubleshooting/002-startapp-chicken-and-egg.md) — Django `startapp` fails when apps registered in `INSTALLED_APPS` don't exist yet, and the `AUTH_USER_MODEL` complication
 - [`003-tsconfig-baseurl-deprecated.md`](./troubleshooting/003-tsconfig-baseurl-deprecated.md) — TypeScript 6 deprecates `baseUrl`; use `paths` alone
 - [`004-vscode-paste-heredoc-leak.md`](./troubleshooting/004-vscode-paste-heredoc-leak.md) — Pasting heredoc-wrapped content from chat into VS Code includes the wrapper
+- [`005-daphne-no-static-files.md`](./troubleshooting/005-daphne-no-static-files.md) — Django admin renders unstyled when served by bare `daphne` (use `runserver` for dev)
 
 ---
 
