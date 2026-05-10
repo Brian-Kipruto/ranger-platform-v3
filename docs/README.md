@@ -28,13 +28,16 @@ Higher-level design documentation. The *why* behind the structural choices: spli
 ### `features/`
 One markdown file per feature/phase, documenting end-to-end implementation. Each file covers: what the feature does, files created/modified, data flow, API endpoints, frontend components, gotchas encountered.
 
-*(Coming as we build.)*
+- [`02-authentication.md`](./features/02-authentication.md) — JWT login, httpOnly refresh cookie, silent refresh, logout with server-side blacklist
+- [`01-authentication-retrospective.md`](./features/02-authentication-retrospective.md) — what worked, what hurt, what to do differently
 
 ### `decisions/`
 Architecture Decision Records (ADRs). Short, dated records of important technical choices. Format: problem → options considered → decision → consequences.
 
 - [`0001-postgres-in-docker-not-native.md`](./decisions/0001-postgres-in-docker-not-native.md) — Why we run PostgreSQL in Docker even though Ubuntu installed it natively
 - [`0002-multi-tenant-via-organization-fk.md`](./decisions/0002-multi-tenant-via-organization-fk.md) — Why we use a shared schema with `organization` FK, and Django Groups instead of a `role` enum
+- [`0003-refresh-token-storage.md`](./decisions/0003-refresh-token-storage.md) — Refresh token in httpOnly SameSite=Strict cookie; access token in memory + localStorage mirror
+- [`0004-token-blacklist-on-logout.md`](./decisions/0004-token-blacklist-on-logout.md) — Enable simplejwt blacklist + rotation so logout actually invalidates server-side
 
 ### `troubleshooting/`
 Error logs and fixes. Each entry records: what we saw, what caused it, how we fixed it, how to prevent it.
@@ -44,6 +47,11 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 - [`003-tsconfig-baseurl-deprecated.md`](./troubleshooting/003-tsconfig-baseurl-deprecated.md) — TypeScript 6 deprecates `baseUrl`; use `paths` alone
 - [`004-vscode-paste-heredoc-leak.md`](./troubleshooting/004-vscode-paste-heredoc-leak.md) — Pasting heredoc-wrapped content from chat into VS Code includes the wrapper
 - [`005-daphne-no-static-files.md`](./troubleshooting/005-daphne-no-static-files.md) — Django admin renders unstyled when served by bare `daphne` (use `runserver` for dev)
+- [`006-postgres-not-running-fresh-terminal.md`](./troubleshooting/006-postgres-not-running-fresh-terminal.md) — `connection refused: 5432` after fresh terminal because Docker containers don't auto-start
+- [`007-virtualenv-not-active.md`](./troubleshooting/007-virtualenv-not-active.md) — `ModuleNotFoundError: No module named 'django'` because virtualenv wasn't reactivated
+- [`008-self-referential-url-include.md`](./troubleshooting/008-self-referential-url-include.md) — Self-referential `include("<app>.urls")` inside the same app's `urls.py`
+- [`009-refresh-cookie-secure-flag-bug.md`](./troubleshooting/009-refresh-cookie-secure-flag-bug.md) — Refresh cookie sent with `Secure` in dev because `base.py` evaluates `not DEBUG` before `development.py` flips DEBUG to True
+- [`010-vite-dynamic-import-multi-instance.md`](./troubleshooting/010-vite-dynamic-import-multi-instance.md) — Vite dev mode resolved dynamic imports as separate module instances, producing two Zustand stores that didn't share state
 
 ---
 
@@ -67,4 +75,4 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 
 ---
 
-*Last updated: 2026-05-09*
+*Last updated: 2026-05-10*
