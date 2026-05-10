@@ -42,6 +42,9 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
+    # ─── RANGER V3 START: auth ───
+    "rest_framework_simplejwt.token_blacklist",
+    # ─── RANGER V3 END: auth ───
     "channels",
     "corsheaders",
 ]
@@ -145,13 +148,39 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": False,
+    # ─── RANGER V3 START: auth ───
+    # Blacklist old refresh tokens after rotation so leaked tokens die fast.
+    # Requires rest_framework_simplejwt.token_blacklist in INSTALLED_APPS.
+    "BLACKLIST_AFTER_ROTATION": True,
+    # ─── RANGER V3 END: auth ───
     "SIGNING_KEY": env("JWT_SIGNING_KEY", required=True),
     "ALGORITHM": "HS256",
     "AUTH_HEADER_TYPES": ("Bearer",),
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
 }
+
+# ─── RANGER V3 START: auth ───
+# Refresh token cookie config. The refresh token lives in an httpOnly
+# cookie so JS (and therefore XSS) can't read it. Access token still goes
+# in the response body and lives in memory + localStorage on the frontend.
+#
+# Path is restricted to /api/auth/ so the browser only sends it on
+# refresh/logout, minimizing exposure on every other API call.
+#
+# Secure is False in DEBUG so dev works over HTTP. Flip DEBUG to False
+# in production and the cookie auto-upgrades to HTTPS-only.
+REFRESH_COOKIE = {
+    "name": "ranger_refresh",
+    "path": "/api/auth/",
+    "httponly": True,
+    "samesite": "Strict",
+    # 'secure' is computed at request time in views (reads settings.DEBUG)
+    # because base.py is evaluated before development.py overrides DEBUG.
+    # max_age in seconds. Matches REFRESH_TOKEN_LIFETIME above.
+    "max_age": int(SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()),
+}
+# ─── RANGER V3 END: auth ───
 
 # ─── Password validation ───
 AUTH_PASSWORD_VALIDATORS = [
