@@ -38,6 +38,7 @@ Architecture Decision Records (ADRs). Short, dated records of important technica
 - [`0002-multi-tenant-via-organization-fk.md`](./decisions/0002-multi-tenant-via-organization-fk.md) — Why we use a shared schema with `organization` FK, and Django Groups instead of a `role` enum
 - [`0003-refresh-token-storage.md`](./decisions/0003-refresh-token-storage.md) — Refresh token in httpOnly SameSite=Strict cookie; access token in memory + localStorage mirror
 - [`0004-token-blacklist-on-logout.md`](./decisions/0004-token-blacklist-on-logout.md) — Enable simplejwt blacklist + rotation so logout actually invalidates server-side
+- [`0005-auth-feature-known-gaps.md`](./decisions/0005-auth-feature-known-gaps.md) — Deferred-work register: 15 items the auth feature did NOT ship that need closing before production
 
 ### `troubleshooting/`
 Error logs and fixes. Each entry records: what we saw, what caused it, how we fixed it, how to prevent it.
