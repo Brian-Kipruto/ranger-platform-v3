@@ -2,7 +2,7 @@
 
 This is the working knowledge base for the R.A.N.G.E.R. V3 build. It covers system setup, architecture decisions, per-feature implementation notes, and troubleshooting logs.
 
-The goal: anyone (including future-you) should be able to read this and understand **what was built, why it was built that way, and how to recover if it breaks**.
+The goal: anyone (including future-me) should be able to read this and understand **what was built, why it was built that way, and how to recover if it breaks**.
 
 ---
 
@@ -32,6 +32,8 @@ One markdown file per feature/phase, documenting end-to-end implementation. Each
 - [`02-authentication-retrospective.md`](./features/02-authentication-retrospective.md) — what worked, what hurt, what to do differently
 - [`03-core-models.md`](./features/03-core-models.md) — core + missions models: robots, sensor catalog, decoupled sensor logs, missions, waypoints
 - [`03-core-models-retrospective.md`](./features/03-core-models-retrospective.md) — what worked, the migration-split win, carry-forwards
+- [`04-simulator.md`](./features/04-simulator.md) — run_simulation management command: backfill + live modes, hybrid waypoint/random-walk, readings driven by installed_sensors
+- [`04-simulator-retrospective.md`](./features/04-simulator-retrospective.md) — what worked, the count-mismatch red herring, carry-forwards for Data Explorer
 
 ### `decisions/`
 Architecture Decision Records (ADRs). Short, dated records of important technical choices. Format: problem → options considered → decision → consequences.
