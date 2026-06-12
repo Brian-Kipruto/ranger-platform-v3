@@ -10,6 +10,9 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     # API routes will be added per-app as features are built
     path("api/", include("accounts.urls")),
+    # ─── RANGER V3 START: data explorer ───
+    path("api/", include("core.urls")),
+    # ─── RANGER V3 END: data explorer ───
 ]
 
 if settings.DEBUG:
