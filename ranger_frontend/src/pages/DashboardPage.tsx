@@ -7,6 +7,7 @@
  */
 import { useAuthStore } from "@/stores/authStore"
 import { useNavigate } from "react-router-dom"
+import { Link } from "react-router-dom"
 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user)
@@ -40,7 +41,9 @@ export default function DashboardPage() {
             <p>
               Organization: <strong>{user.organization.name}</strong>
             </p>
+            
           ) : null}
+          <p><Link to="/data" className="underline">→ Data Explorer</Link></p>
           <p className="text-gray-500">
             Real dashboard widgets ship in a later feature.
           </p>

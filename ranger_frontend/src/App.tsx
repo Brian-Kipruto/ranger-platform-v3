@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import HomePage from "@/pages/HomePage"
 import LoginPage from "@/pages/LoginPage"
 import DashboardPage from "@/pages/DashboardPage"
+import DataExplorerPage from "@/pages/DataExplorerPage"
 import ProtectedRoute from "@/components/ProtectedRoute"
 import { useAuthStore } from "@/stores/authStore"
 
@@ -36,6 +37,16 @@ function App() {
             </ProtectedRoute>
           }
         />
+        {/* ─── RANGER V3 START: data explorer route ─── */}
+        <Route
+          path="/data"
+          element={
+            <ProtectedRoute>
+              <DataExplorerPage />
+            </ProtectedRoute>
+          }
+        />
+        {/* ─── RANGER V3 END: data explorer route ─── */}
 
         {/* Unknown route → home */}
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -139,7 +139,7 @@ def data_log_export_csv(request):
     response["Content-Disposition"] = 'attachment; filename="ranger_sensor_logs.csv"'
 
     fieldnames = [
-        "id", "robot_id_str", "robot_name", "mission_id", "mission_name",
+        "id", "robot_id", "robot_id_str", "robot_name", "mission_id", "mission_name",
         "timestamp", "latitude", "longitude",
         "radiation_value", "dose_rate_usvh",
         "pm25", "pm10",

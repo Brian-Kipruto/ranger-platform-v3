@@ -23,6 +23,8 @@ from .models import SensorLog
 
 class DataLogSerializer(serializers.ModelSerializer):
     # Parent / relations
+    # Parent / relations
+    robot_id = serializers.IntegerField(source="robot.id", read_only=True)
     robot_id_str = serializers.CharField(source="robot.robot_id_str", read_only=True)
     robot_name = serializers.CharField(source="robot.name", read_only=True)
     mission_id = serializers.IntegerField(source="mission.id", read_only=True, allow_null=True)
@@ -47,6 +49,7 @@ class DataLogSerializer(serializers.ModelSerializer):
         model = SensorLog
         fields = [
             "id",
+            "robot_id",
             "robot_id_str",
             "robot_name",
             "mission_id",
