@@ -5,6 +5,7 @@ import HomePage from "@/pages/HomePage"
 import LoginPage from "@/pages/LoginPage"
 import DashboardPage from "@/pages/DashboardPage"
 import DataExplorerPage from "@/pages/DataExplorerPage"
+import VisualizationsPage from "@/pages/VisualizationsPage"
 import ProtectedRoute from "@/components/ProtectedRoute"
 import { useAuthStore } from "@/stores/authStore"
 
@@ -43,6 +44,14 @@ function App() {
           element={
             <ProtectedRoute>
               <DataExplorerPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/visualizations"
+          element={
+            <ProtectedRoute>
+              <VisualizationsPage />
             </ProtectedRoute>
           }
         />

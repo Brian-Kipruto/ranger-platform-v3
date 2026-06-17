@@ -44,6 +44,7 @@ export default function DashboardPage() {
             
           ) : null}
           <p><Link to="/data" className="underline">→ Data Explorer</Link></p>
+          <p><Link to="/visualizations" className="underline">→ Visualizations</Link></p>
           <p className="text-gray-500">
             Real dashboard widgets ship in a later feature.
           </p>

@@ -51,6 +51,15 @@ export async function getMapData(
   return data
 }
 
+/** GET /api/chart-data/ — unpaginated, ascending, point-capped. Flat rows for
+ *  time-series charts. Same shape as the list endpoint, no pagination envelope. */
+export async function getChartData(filters: DataLogFilters): Promise<DataLog[]> {
+  const { data } = await api.get<DataLog[]>("/chart-data/", {
+    params: buildParams(filters),
+  })
+  return data
+}
+
 /** GET /api/data-logs/export/ — CSV download. Fetched as a blob through the
  *  api instance (JWT attached), then turned into a synthetic download so the
  *  browser saves the file without leaving the page. */
