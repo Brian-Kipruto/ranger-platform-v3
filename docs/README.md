@@ -34,6 +34,8 @@ One markdown file per feature/phase, documenting end-to-end implementation. Each
 - [`03-core-models-retrospective.md`](./features/03-core-models-retrospective.md) — what worked, the migration-split win, carry-forwards
 - [`04-simulator.md`](./features/04-simulator.md) — run_simulation management command: backfill + live modes, hybrid waypoint/random-walk, readings driven by installed_sensors
 - [`04-simulator-retrospective.md`](./features/04-simulator-retrospective.md) — what worked, the count-mismatch red herring, carry-forwards for Data Explorer
+- [`05-data-explorer.md`](./features/05-data-explorer.md) — four read endpoints over SensorLog (list, CSV export, chart-data, map-data), the null-safe flattening serializer, the Data Explorer page (table + MapLibre map), and the Visualizations page (4 Recharts charts)
+- [`05-data-explorer-retrospective.md`](./features/05-data-explorer-retrospective.md) — what worked, the map-data race and robot-filter PK gap, carry-forwards
 
 ### `decisions/`
 Architecture Decision Records (ADRs). Short, dated records of important technical choices. Format: problem → options considered → decision → consequences.
@@ -44,6 +46,7 @@ Architecture Decision Records (ADRs). Short, dated records of important technica
 - [`0004-token-blacklist-on-logout.md`](./decisions/0004-token-blacklist-on-logout.md) — Enable simplejwt blacklist + rotation so logout actually invalidates server-side
 - [`0005-auth-feature-known-gaps.md`](./decisions/0005-auth-feature-known-gaps.md) — Deferred-work register: 15 items the auth feature did NOT ship that need closing before production
 - [`0006-sensorlog-tenancy-through-robot.md`](./decisions/0006-sensorlog-tenancy-through-robot.md) — Why SensorLog inherits tenancy through Robot instead of carrying its own organization FK
+- [`0007-data-explorer-authenticated-only.md`](./decisions/0007-data-explorer-authenticated-only.md) — Why Feature 05 ships authenticated-only and defers custom-permission enforcement to a later feature
 
 ### `troubleshooting/`
 Error logs and fixes. Each entry records: what we saw, what caused it, how we fixed it, how to prevent it.
@@ -58,6 +61,8 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 - [`008-self-referential-url-include.md`](./troubleshooting/008-self-referential-url-include.md) — Self-referential `include("<app>.urls")` inside the same app's `urls.py`
 - [`009-refresh-cookie-secure-flag-bug.md`](./troubleshooting/009-refresh-cookie-secure-flag-bug.md) — Refresh cookie sent with `Secure` in dev because `base.py` evaluates `not DEBUG` before `development.py` flips DEBUG to True
 - [`010-vite-dynamic-import-multi-instance.md`](./troubleshooting/010-vite-dynamic-import-multi-instance.md) — Vite dev mode resolved dynamic imports as separate module instances, producing two Zustand stores that didn't share state
+- [`011-mapdata-load-race.md`](./troubleshooting/011-mapdata-load-race.md) — MapLibre track points silently missing because the map-data fetch resolved before the map's `load` event
+- [`012-robot-filter-pk-gap.md`](./troubleshooting/012-robot-filter-pk-gap.md) — Robot filter had no value to send: serializer exposed the string ID but the endpoint filters by integer PK
 
 ---
 
@@ -81,4 +86,4 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 
 ---
 
-*Last updated: 2026-06-12*
+*Last updated: 2026-06-15*
