@@ -29,6 +29,7 @@ import { MonoLabel } from "@/components/console/MonoLabel"
 import { StatusDot } from "@/components/console/StatusDot"
 import { CornerTicks } from "@/components/console/CornerTicks"
 import { DEMO_ACCOUNTS, type DemoAccount } from "@/config/demoAccounts"
+import byteanzaLogo from "@/assets/byteanza-logo.svg"
 
 const loginSchema = z.object({
   username: z.string().min(1, "Operator ID is required"),
@@ -154,6 +155,14 @@ export default function LoginPage() {
       />
 
       <CornerTicks />
+
+      {/* brand mark — top-left corner */}
+      <img
+        src={byteanzaLogo}
+        alt="ByteAnza"
+        className="absolute top-[40px] left-[54px] h-[100px] w-auto select-none opacity-95"
+        draggable={false}
+      />
 
       <div
         className="relative grid items-center"
