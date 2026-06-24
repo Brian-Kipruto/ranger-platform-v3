@@ -1,14 +1,131 @@
-/* ─── RANGER V3 START: global styles ─── */
+/* ─── RANGER V3 START: global styles + console tokens ─── */
 @import "tailwindcss";
 
-:root {
-  --primary-theme-color: #0ea5e9;
+/*
+ * Field Console design tokens (Feature 06).
+ * Ported from RANGER V3 Field Console.dc.html. See F06 CP0 reference.
+ *
+ * Two kinds of token live here:
+ *  1. @theme tokens  → fixed values that also become Tailwind utilities
+ *                      (surfaces, text ramp, semantic colors, fonts).
+ *  2. :root --accent → runtime-mutable. Defaults to violet (the mockup's
+ *                      hardcoded accent) but is overridden per-org from
+ *                      organization.theme_color by AppShell at runtime.
+ *                      Kept OUT of @theme so it's never baked into a utility
+ *                      class at build time.
+ */
+
+@theme {
+  /* ── fonts ── */
+  --font-ui: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* ── surface ramp (dark, fixed) ── */
+  --color-surface-0: #08090b;       /* app background (outermost) */
+  --color-surface-1: #0a0c10;       /* content frame bg */
+  --color-surface-2: #0b0d11;       /* nav rail, top bar */
+  --color-surface-3: #0e1015;       /* inset controls */
+  --color-surface-4: #0e1116;       /* map panel bg */
+  --color-surface-panel: #111419;   /* standard Panel surface */
+  --color-surface-input: #0b0d11;   /* login field backgrounds */
+
+  /* ── borders ── */
+  --color-border-soft: rgba(255, 255, 255, 0.04);
+  --color-border: rgba(255, 255, 255, 0.07);
+  --color-border-strong: #262c36;
+  --color-border-strong-2: #2a313d;
+
+  /* ── text ramp ── */
+  --color-fg-faint: #5a6071;
+  --color-fg-dim: #7a828f;
+  --color-fg-muted: #969dab;
+  --color-fg-soft: #cdd2da;
+  --color-fg: #e9ebef;
+  --color-fg-bright: #f4f5f7;
+
+  /* ── semantic (FIXED — encode meaning, never themeable) ── */
+  --color-ok: #4be08a;
+  --color-warn: #f5a623;
+  --color-alert: #ff5d5d;
+  --color-info: #36c5f0;
+
+  /* ── keyframes used by F06 screens (login + data explorer) ── */
+  --animate-rng-pulse: rngPulse 1.8s ease-in-out infinite;
+  --animate-rng-blink: rngBlink 1.1s steps(1) infinite;
+  --animate-rng-ping: rngPing 2.4s ease-out infinite;
+  --animate-rng-sweep: rngSweep 3.6s linear infinite;
 }
 
-body {
-  margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: #0f172a;
-  color: #e2e8f0;
+/*
+ * Runtime accent. AppShell sets --accent from the user's organization
+ * theme_color on login/hydrate. Violet is the fallback a tenant with no
+ * color set would see. --accent-weak derives from whatever --accent is,
+ * via color-mix, so soft fills follow the tenant accent automatically.
+ */
+:root {
+  --accent: #7c6cff;        /* fallback (violet) — overridden per-org at runtime */
+  --accent-hover: #9a8cff;
+  --accent-weak: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-faint: color-mix(in srgb, var(--accent) 6%, transparent);
 }
-/* ─── RANGER V3 END: global styles ─── */
+
+@keyframes rngPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.28; }
+}
+@keyframes rngBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+@keyframes rngPing {
+  0% { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
+@keyframes rngSweep {
+  to { transform: rotate(360deg); }
+}
+
+/* ── base ── */
+* {
+  box-sizing: border-box;
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--color-surface-0);
+  color: var(--color-fg);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--accent-weak);
+  color: #fff;
+}
+
+/* console scrollbars */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 6px;
+  border: 2px solid var(--color-surface-3);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #333a47;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+/* ─── RANGER V3 END: global styles + console tokens ─── */

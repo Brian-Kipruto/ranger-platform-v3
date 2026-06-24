@@ -18,7 +18,6 @@
  *  - GeoJSON coordinates are [lng, lat] — verified backend-side in 05a.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Link } from "react-router-dom"
 import {
   createColumnHelper,
   flexRender,
@@ -31,6 +30,9 @@ import {
 import maplibregl from "maplibre-gl"
 import "maplibre-gl/dist/maplibre-gl.css"
 import { useAuthStore } from "@/stores/authStore"
+import { Panel } from "@/components/console/Panel"
+import { MonoLabel } from "@/components/console/MonoLabel"
+import { MetricTile } from "@/components/console/MetricTile"
 import {
   getDataLogs,
   getMapData,
@@ -304,27 +306,16 @@ export default function DataExplorerPage() {
   )
 
   return (
-    <div className="min-h-screen p-6">
-      <div className="max-w-[110rem] mx-auto">
-        <header className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-semibold">Data Explorer</h1>
-            <p className="text-sm text-gray-500">
-              {user?.organization?.name ?? "Organization"} sensor logs
-            </p>
-          </div>
-          <Link to="/dashboard" className="text-sm underline text-gray-600 hover:text-gray-900">
-            ← Dashboard
-          </Link>
-        </header>
-
-        <div className="flex flex-wrap items-end gap-3 mb-4 p-4 border rounded-lg bg-gray-50 dark:bg-gray-900">
-          <label className="flex flex-col text-xs gap-1">
-            <span className="text-gray-600">Robot</span>
+    <div className="p-[18px]">
+      {/* ── filter bar: robot/mission/date selects + fetch + export ── */}
+      <Panel noHeader className="mb-3">
+        <div className="flex flex-wrap items-end gap-3 p-[14px]">
+          <label className="flex flex-col gap-1">
+            <MonoLabel size="xs" tone="dim" tracking="0.12em">Robot</MonoLabel>
             <select
               value={robotId}
               onChange={(e) => setRobotId(e.target.value)}
-              className="border rounded px-2 py-1.5 text-sm min-w-[12rem] bg-white dark:bg-gray-800"
+              className="bg-surface-input border border-border-strong rounded-md px-2.5 py-1.5 text-[12px] text-fg-soft min-w-[12rem] outline-none focus:border-[var(--accent)] transition-colors"
             >
               <option value="">All robots</option>
               {robots.map((r) => (
@@ -335,12 +326,12 @@ export default function DataExplorerPage() {
             </select>
           </label>
 
-          <label className="flex flex-col text-xs gap-1">
-            <span className="text-gray-600">Mission</span>
+          <label className="flex flex-col gap-1">
+            <MonoLabel size="xs" tone="dim" tracking="0.12em">Mission</MonoLabel>
             <select
               value={missionId}
               onChange={(e) => setMissionId(e.target.value)}
-              className="border rounded px-2 py-1.5 text-sm min-w-[12rem] bg-white dark:bg-gray-800"
+              className="bg-surface-input border border-border-strong rounded-md px-2.5 py-1.5 text-[12px] text-fg-soft min-w-[12rem] outline-none focus:border-[var(--accent)] transition-colors"
             >
               <option value="">All missions</option>
               {missions.map((m) => (
@@ -351,192 +342,201 @@ export default function DataExplorerPage() {
             </select>
           </label>
 
-          <label className="flex flex-col text-xs gap-1">
-            <span className="text-gray-600">From</span>
+          <label className="flex flex-col gap-1">
+            <MonoLabel size="xs" tone="dim" tracking="0.12em">From</MonoLabel>
             <input
               type="date"
               value={dateStart}
               onChange={(e) => setDateStart(e.target.value)}
-              className="border rounded px-2 py-1.5 text-sm bg-white dark:bg-gray-800"
+              className="bg-surface-input border border-border-strong rounded-md px-2.5 py-1.5 text-[12px] text-fg-soft outline-none focus:border-[var(--accent)] transition-colors [color-scheme:dark]"
             />
           </label>
 
-          <label className="flex flex-col text-xs gap-1">
-            <span className="text-gray-600">To</span>
+          <label className="flex flex-col gap-1">
+            <MonoLabel size="xs" tone="dim" tracking="0.12em">To</MonoLabel>
             <input
               type="date"
               value={dateEnd}
               onChange={(e) => setDateEnd(e.target.value)}
-              className="border rounded px-2 py-1.5 text-sm bg-white dark:bg-gray-800"
+              className="bg-surface-input border border-border-strong rounded-md px-2.5 py-1.5 text-[12px] text-fg-soft outline-none focus:border-[var(--accent)] transition-colors [color-scheme:dark]"
             />
           </label>
 
           <button
             onClick={handleFetch}
             disabled={loading}
-            className="px-4 py-1.5 text-sm rounded text-white disabled:opacity-50"
-            style={{ backgroundColor: accent }}
+            className="font-mono text-[10px] tracking-[0.1em] text-white px-4 py-2 rounded-md disabled:opacity-50 transition-opacity"
+            style={{ background: "var(--accent)" }}
           >
-            {loading ? "Loading…" : "Fetch Data"}
+            {loading ? "LOADING…" : "↻ FETCH DATA"}
           </button>
           <button
             onClick={handleExport}
             disabled={exporting || totalCount === 0}
-            className="px-4 py-1.5 text-sm rounded border disabled:opacity-50"
+            className="font-mono text-[10px] tracking-[0.1em] font-semibold text-[#0a0d12] bg-ok px-4 py-2 rounded-md disabled:opacity-40 transition-opacity"
           >
-            {exporting ? "Exporting…" : "Export CSV"}
+            {exporting ? "EXPORTING…" : "↓ EXPORT CSV"}
           </button>
         </div>
+      </Panel>
 
-        <div className="text-sm text-gray-600 mb-2">
-          {error ? (
-            <span className="text-red-600">{error}</span>
-          ) : (
-            <>
-              {totalCount} record{totalCount === 1 ? "" : "s"}
-              {isFiltered ? " (filtered)" : ""}
-              {" · map shows the full filtered track; table is paginated"}
-            </>
-          )}
+      {/* ── status line ── */}
+      <div className="mb-3 font-mono text-[10px] tracking-[0.06em]">
+        {error ? (
+          <span className="text-alert">{error}</span>
+        ) : (
+          <span className="text-fg-dim">
+            {totalCount} RECORD{totalCount === 1 ? "" : "S"}
+            {isFiltered ? " · FILTERED" : ""}
+            {" · MAP SHOWS FULL TRACK · TABLE PAGINATED"}
+          </span>
+        )}
+      </div>
+
+      {/* ── summary metric tiles (full filtered set) ── */}
+      {!error && (radiationStat || pm25Stat) ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          {radiationStat ? (
+            <MetricTile
+              label="RADIATION"
+              value={radiationStat.avg.toFixed(1)}
+              unit="CPM avg"
+              sub={`min ${radiationStat.min.toFixed(1)} · max ${radiationStat.max.toFixed(1)} · n=${radiationStat.count}`}
+            />
+          ) : null}
+          {pm25Stat ? (
+            <MetricTile
+              label="PM2.5"
+              value={pm25Stat.avg.toFixed(1)}
+              unit="µg/m³ avg"
+              bar="var(--color-warn)"
+              sub={`min ${pm25Stat.min.toFixed(1)} · max ${pm25Stat.max.toFixed(1)} · n=${pm25Stat.count}`}
+            />
+          ) : null}
         </div>
+      ) : null}
 
-        {/* Summary bar — stats over the full filtered set (from map-data) */}
-        {!error && (radiationStat || pm25Stat) ? (
-          <div className="flex flex-wrap gap-6 mb-3 p-3 border rounded-lg bg-gray-50 dark:bg-gray-900 text-sm">
-            {radiationStat ? (
-              <div>
-                <span className="text-gray-500">Radiation (CPM): </span>
-                <span>min {radiationStat.min.toFixed(1)}</span>
-                {" · "}
-                <span>max {radiationStat.max.toFixed(1)}</span>
-                {" · "}
-                <span>avg {radiationStat.avg.toFixed(1)}</span>
-                <span className="text-gray-400"> (n={radiationStat.count})</span>
-              </div>
-            ) : null}
-            {pm25Stat ? (
-              <div>
-                <span className="text-gray-500">PM2.5 (µg/m³): </span>
-                <span>min {pm25Stat.min.toFixed(1)}</span>
-                {" · "}
-                <span>max {pm25Stat.max.toFixed(1)}</span>
-                {" · "}
-                <span>avg {pm25Stat.avg.toFixed(1)}</span>
-                <span className="text-gray-400"> (n={pm25Stat.count})</span>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        <div className="flex flex-col lg:flex-row gap-4">
-          <div className="lg:w-1/2 flex flex-col min-w-0">
-            <details className="mb-2 text-sm">
-              <summary className="cursor-pointer text-gray-600 select-none">Columns</summary>
-              <div className="flex flex-wrap gap-3 mt-2 p-3 border rounded bg-gray-50 dark:bg-gray-900">
-                {allColumns.map((column) => (
-                  <label key={column.id} className="flex items-center gap-1.5 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={column.getIsVisible()}
-                      onChange={column.getToggleVisibilityHandler()}
-                    />
-                    {flexRender(column.columnDef.header, {} as never)}
-                  </label>
+      {/* ── table + map ── */}
+      <div className="flex flex-col lg:flex-row gap-3">
+        {/* TABLE PANEL */}
+        <div className="lg:w-1/2 flex flex-col min-w-0">
+          <Panel
+            title="SENSOR LOGS"
+            right={
+              <details className="relative">
+                <summary className="cursor-pointer list-none font-mono text-[9px] tracking-[0.1em] text-fg-dim hover:text-fg-soft select-none">
+                  COLUMNS ▾
+                </summary>
+                <div className="absolute right-0 z-10 mt-2 w-[260px] flex flex-wrap gap-2.5 p-3 bg-surface-panel border border-border-strong rounded-lg shadow-xl">
+                  {allColumns.map((column) => (
+                    <label key={column.id} className="flex items-center gap-1.5 font-mono text-[10px] text-fg-muted">
+                      <input
+                        type="checkbox"
+                        checked={column.getIsVisible()}
+                        onChange={column.getToggleVisibilityHandler()}
+                        className="accent-[var(--accent)]"
+                      />
+                      {flexRender(column.columnDef.header, {} as never)}
+                    </label>
+                  ))}
+                </div>
+              </details>
+            }
+            bodyClassName="overflow-auto max-h-[68vh]"
+          >
+            <table className="w-full">
+              <thead className="bg-surface-3 sticky top-0 z-[1]">
+                {table.getHeaderGroups().map((hg) => (
+                  <tr key={hg.id}>
+                    {hg.headers.map((header) => (
+                      <th
+                        key={header.id}
+                        onClick={header.column.getToggleSortingHandler()}
+                        className="px-3 py-2.5 text-left font-mono text-[9px] tracking-[0.1em] uppercase text-fg-dim whitespace-nowrap cursor-pointer select-none hover:text-fg-soft border-b border-border"
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {{ asc: " ▲", desc: " ▼" }[header.column.getIsSorted() as string] ?? ""}
+                      </th>
+                    ))}
+                  </tr>
                 ))}
-              </div>
-            </details>
-
-            <div className="border rounded-lg overflow-auto max-h-[70vh]">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-100 dark:bg-gray-800 sticky top-0">
-                  {table.getHeaderGroups().map((hg) => (
-                    <tr key={hg.id}>
-                      {hg.headers.map((header) => (
-                        <th
-                          key={header.id}
-                          onClick={header.column.getToggleSortingHandler()}
-                          className="px-3 py-2 text-left font-medium whitespace-nowrap cursor-pointer select-none hover:bg-gray-200 dark:hover:bg-gray-700"
-                        >
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                          {{ asc: " ▲", desc: " ▼" }[header.column.getIsSorted() as string] ?? ""}
-                        </th>
+              </thead>
+              <tbody>
+                {table.getRowModel().rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={columns.length} className="px-3 py-10 text-center font-mono text-[11px] text-fg-faint">
+                      {loading ? "LOADING…" : "NO DATA · ADJUST FILTERS AND FETCH"}
+                    </td>
+                  </tr>
+                ) : (
+                  table.getRowModel().rows.map((row) => (
+                    <tr
+                      key={row.id}
+                      onClick={() => handleRowClick(row.original)}
+                      className="cursor-pointer border-b border-border-soft hover:bg-surface-3 transition-colors"
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <td key={cell.id} className="px-3 py-2 font-mono text-[11px] text-fg-soft whitespace-nowrap">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
                       ))}
                     </tr>
-                  ))}
-                </thead>
-                <tbody>
-                  {table.getRowModel().rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={columns.length} className="px-3 py-8 text-center text-gray-400">
-                        {loading ? "Loading…" : "No data. Adjust filters and Fetch Data."}
-                      </td>
-                    </tr>
-                  ) : (
-                    table.getRowModel().rows.map((row) => (
-                      <tr
-                        key={row.id}
-                        onClick={() => handleRowClick(row.original)}
-                        className="border-t cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50"
-                      >
-                        {row.getVisibleCells().map((cell) => (
-                          <td key={cell.id} className="px-3 py-1.5 whitespace-nowrap">
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </Panel>
 
-            <div className="flex items-center gap-3 mt-3 text-sm">
-              <button
-                onClick={() => setPageIndex((i) => Math.max(0, i - 1))}
-                disabled={pageIndex === 0 || loading}
-                className="px-3 py-1 border rounded disabled:opacity-40"
-              >
-                Previous
-              </button>
-              <span className="text-gray-600">
-                Page {pageIndex + 1} of {pageCount}
-              </span>
-              <button
-                onClick={() => setPageIndex((i) => Math.min(pageCount - 1, i + 1))}
-                disabled={pageIndex >= pageCount - 1 || loading}
-                className="px-3 py-1 border rounded disabled:opacity-40"
-              >
-                Next
-              </button>
-            </div>
+          {/* pagination */}
+          <div className="flex items-center gap-3 mt-3">
+            <button
+              onClick={() => setPageIndex((i) => Math.max(0, i - 1))}
+              disabled={pageIndex === 0 || loading}
+              className="font-mono text-[10px] tracking-[0.08em] text-fg-muted bg-surface-3 border border-border-strong px-3 py-1.5 rounded-md disabled:opacity-40 hover:border-border-strong-2 transition-colors"
+            >
+              ← PREV
+            </button>
+            <MonoLabel size="sm" tone="dim" tracking="0.08em">
+              PAGE {pageIndex + 1} / {pageCount}
+            </MonoLabel>
+            <button
+              onClick={() => setPageIndex((i) => Math.min(pageCount - 1, i + 1))}
+              disabled={pageIndex >= pageCount - 1 || loading}
+              className="font-mono text-[10px] tracking-[0.08em] text-fg-muted bg-surface-3 border border-border-strong px-3 py-1.5 rounded-md disabled:opacity-40 hover:border-border-strong-2 transition-colors"
+            >
+              NEXT →
+            </button>
           </div>
+        </div>
 
-          <div className="lg:w-1/2 min-w-0">
+        {/* MAP PANEL */}
+        <div className="lg:w-1/2 min-w-0">
+          <Panel
+            title="FIELD MAP"
+            right={<MonoLabel size="xs" tone="accent">FILTERED TRACK</MonoLabel>}
+            bodyClassName="relative"
+          >
             {MAP_STYLE ? (
-              <div
-                ref={mapContainer}
-                className="w-full rounded-lg border"
-                style={{ height: "70vh" }}
-              />
+              <div ref={mapContainer} className="w-full" style={{ height: "68vh" }} />
             ) : (
               <div
-                className="w-full rounded-lg border flex items-center justify-center text-center text-sm text-gray-500 p-6"
-                style={{ height: "70vh" }}
+                className="w-full flex items-center justify-center text-center font-mono text-[11px] text-fg-dim p-6"
+                style={{ height: "68vh" }}
               >
-                Map unavailable: VITE_MAPTILER_KEY is not set in
-                ranger_frontend/.env. Add it and restart the dev server.
+                MAP UNAVAILABLE · VITE_MAPTILER_KEY NOT SET IN ranger_frontend/.env ·
+                ADD IT AND RESTART THE DEV SERVER
               </div>
             )}
-            <p
-              className="mt-1 text-xs cursor-pointer text-gray-500 hover:text-gray-700"
-              onClick={() => {
-                highlightMarker.current?.remove()
-                highlightMarker.current = null
-              }}
-            >
-              Click a table row to fly here. (Clear highlight)
-            </p>
-          </div>
+          </Panel>
+          <p
+            className="mt-2 font-mono text-[10px] text-fg-faint cursor-pointer hover:text-fg-dim transition-colors"
+            onClick={() => {
+              highlightMarker.current?.remove()
+              highlightMarker.current = null
+            }}
+          >
+            CLICK A ROW TO FLY THERE · (CLEAR HIGHLIGHT)
+          </p>
         </div>
       </div>
     </div>
