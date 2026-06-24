@@ -36,6 +36,8 @@ One markdown file per feature/phase, documenting end-to-end implementation. Each
 - [`04-simulator-retrospective.md`](./features/04-simulator-retrospective.md) — what worked, the count-mismatch red herring, carry-forwards for Data Explorer
 - [`05-data-explorer.md`](./features/05-data-explorer.md) — four read endpoints over SensorLog (list, CSV export, chart-data, map-data), the null-safe flattening serializer, the Data Explorer page (table + MapLibre map), and the Visualizations page (4 Recharts charts)
 - [`05-data-explorer-retrospective.md`](./features/05-data-explorer-retrospective.md) — what worked, the map-data race and robot-filter PK gap, carry-forwards
+- [`06-ui-retrofit.md`](./features/06-ui-retrofit.md) — Field Console UI retrofit: design-token layer, login rebuild, app shell (nav rail + top bar), Data Explorer re-chrome, org-driven accent, seed_demo for role-based login
+- [`06-ui-retrofit-retrospective.md`](./features/06-ui-retrofit-retrospective.md) — what worked, the no-role-field catch, the TS-server phantom errors, carry-forwards
 
 ### `decisions/`
 Architecture Decision Records (ADRs). Short, dated records of important technical choices. Format: problem → options considered → decision → consequences.
@@ -47,6 +49,7 @@ Architecture Decision Records (ADRs). Short, dated records of important technica
 - [`0005-auth-feature-known-gaps.md`](./decisions/0005-auth-feature-known-gaps.md) — Deferred-work register: 15 items the auth feature did NOT ship that need closing before production
 - [`0006-sensorlog-tenancy-through-robot.md`](./decisions/0006-sensorlog-tenancy-through-robot.md) — Why SensorLog inherits tenancy through Robot instead of carrying its own organization FK
 - [`0007-data-explorer-authenticated-only.md`](./decisions/0007-data-explorer-authenticated-only.md) — Why Feature 05 ships authenticated-only and defers custom-permission enforcement to a later feature
+- [`0008-design-tokens-and-console-shell.md`](./decisions/0008-design-tokens-and-console-shell.md) — Tailwind v4 @theme tokens + :root runtime accent, retrofit-first adoption, color-mix derivations, group-keyed role nav shaped for RBAC
 
 ### `troubleshooting/`
 Error logs and fixes. Each entry records: what we saw, what caused it, how we fixed it, how to prevent it.
@@ -63,6 +66,7 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 - [`010-vite-dynamic-import-multi-instance.md`](./troubleshooting/010-vite-dynamic-import-multi-instance.md) — Vite dev mode resolved dynamic imports as separate module instances, producing two Zustand stores that didn't share state
 - [`011-mapdata-load-race.md`](./troubleshooting/011-mapdata-load-race.md) — MapLibre track points silently missing because the map-data fetch resolved before the map's `load` event
 - [`012-robot-filter-pk-gap.md`](./troubleshooting/012-robot-filter-pk-gap.md) — Robot filter had no value to send: serializer exposed the string ID but the endpoint filters by integer PK
+- [`013-ts-server-phantom-module-errors.md`](./troubleshooting/013-ts-server-phantom-module-errors.md) — Editor "Cannot find module" errors for files that exist; stale TS-server cache, restart fixes it, CLI compiler is authoritative
 
 ---
 
