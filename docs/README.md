@@ -38,6 +38,8 @@ One markdown file per feature/phase, documenting end-to-end implementation. Each
 - [`05-data-explorer-retrospective.md`](./features/05-data-explorer-retrospective.md) — what worked, the map-data race and robot-filter PK gap, carry-forwards
 - [`06-ui-retrofit.md`](./features/06-ui-retrofit.md) — Field Console UI retrofit: design-token layer, login rebuild, app shell (nav rail + top bar), Data Explorer re-chrome, org-driven accent, seed_demo for role-based login
 - [`06-ui-retrofit-retrospective.md`](./features/06-ui-retrofit-retrospective.md) — what worked, the no-role-field catch, the TS-server phantom errors, carry-forwards
+- [`07-dashboard-fieldmap.md`](./features/07-dashboard-fieldmap.md) — Dashboard retrofit (KPI row, telemetry, fleet, alerts, sensor streams, comms) + shared `<FieldMap>` extraction with 3 basemaps, expand, and blip/readout overlays; real-vs-DEMO data split centralized in one config
+- [`07-dashboard-fieldmap-retrospective.md`](./features/07-dashboard-fieldmap-retrospective.md) — what worked, the blank-map flexbox trap, the truncated-paste red herring, the logout regression, carry-forwards
 
 ### `decisions/`
 Architecture Decision Records (ADRs). Short, dated records of important technical choices. Format: problem → options considered → decision → consequences.
@@ -50,6 +52,8 @@ Architecture Decision Records (ADRs). Short, dated records of important technica
 - [`0006-sensorlog-tenancy-through-robot.md`](./decisions/0006-sensorlog-tenancy-through-robot.md) — Why SensorLog inherits tenancy through Robot instead of carrying its own organization FK
 - [`0007-data-explorer-authenticated-only.md`](./decisions/0007-data-explorer-authenticated-only.md) — Why Feature 05 ships authenticated-only and defers custom-permission enforcement to a later feature
 - [`0008-design-tokens-and-console-shell.md`](./decisions/0008-design-tokens-and-console-shell.md) — Tailwind v4 @theme tokens + :root runtime accent, retrofit-first adoption, color-mix derivations, group-keyed role nav shaped for RBAC
+- [`0009-demo-login-buttons-dev-only.md`](./decisions/0009-demo-login-buttons-dev-only.md) — The OP/CL/PUB demo login buttons perform REAL seeded-account logins (not a bypass); register requirement to strip them + the plaintext demo-credentials file from production builds
+- [`0010-shared-fieldmap-and-basemaps.md`](./decisions/0010-shared-fieldmap-and-basemaps.md) — Extract one `<FieldMap>` for both Data Explorer and Dashboard; accent-as-prop (paint props can't read CSS vars), `installLayers()` single re-add point on `styledata`, per-screen chrome via flags, key-aware basemap registry
 
 ### `troubleshooting/`
 Error logs and fixes. Each entry records: what we saw, what caused it, how we fixed it, how to prevent it.
@@ -67,6 +71,8 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 - [`011-mapdata-load-race.md`](./troubleshooting/011-mapdata-load-race.md) — MapLibre track points silently missing because the map-data fetch resolved before the map's `load` event
 - [`012-robot-filter-pk-gap.md`](./troubleshooting/012-robot-filter-pk-gap.md) — Robot filter had no value to send: serializer exposed the string ID but the endpoint filters by integer PK
 - [`013-ts-server-phantom-module-errors.md`](./troubleshooting/013-ts-server-phantom-module-errors.md) — Editor "Cannot find module" errors for files that exist; stale TS-server cache, restart fixes it, CLI compiler is authoritative
+- [`014-fieldmap-blank-flex-height-collapse.md`](./troubleshooting/014-fieldmap-blank-flex-height-collapse.md) — FieldMap canvas blank (header/toggle render, tiles don't): `flex-1` + explicit height on the same div inside an unconstrained flex column collapsed the map container to 0px; build was clean
+- [`015-truncated-paste-missing-export.md`](./troubleshooting/015-truncated-paste-missing-export.md) — A `has no exported member` TS error + blank-white route caused by an incomplete file paste (export lost); verify exports + line count after pasting large files
 
 ---
 
@@ -90,4 +96,4 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 
 ---
 
-*Last updated: 2026-06-15*
+*Last updated: 2026-06-25*
