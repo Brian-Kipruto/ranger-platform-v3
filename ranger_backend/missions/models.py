@@ -3,7 +3,13 @@
 Mission planning: a Mission (org-scoped, assigned to a robot) and its
 ordered Waypoints. Separates intent (the plan) from result (the sensor
 logs collected, which FK back to Mission from core).
+
+Geospatial (F10.1): Waypoint carries a PostGIS Point in `location` (legacy
+float columns removed in CP4), and Mission gains `area_of_interest`, a
+nullable Polygon. The AOI is new — nothing to migrate from — and is what
+satellite queries join against in F10.2. See ADR-0011.
 """
+from django.contrib.gis.db import models as gis_models
 from django.db import models
 
 
@@ -48,6 +54,19 @@ class Mission(models.Model):
         db_index=True,
     )
 
+    # ─── RANGER V3 START: F10.1 geometry ───
+    # NEW in F10.1 (not a migration of anything — Mission had no geometry).
+    # Nullable: existing missions have no defined AOI, and plenty never will.
+    # F10.2's SatelliteQuery scopes scene retrieval to this polygon.
+    area_of_interest = gis_models.PolygonField(
+        srid=4326,
+        null=True,
+        blank=True,
+        help_text="Optional WGS84 survey boundary. Scopes satellite scene "
+                  "retrieval and ground-truth correlation (F10.2+).",
+    )
+    # ─── RANGER V3 END: F10.1 geometry ───
+
     # Arbitrary tenant-defined tags, same pattern as Robot.metadata.
     metadata = models.JSONField(default=dict, blank=True)
 
@@ -81,8 +100,18 @@ class Waypoint(models.Model):
     order = models.PositiveIntegerField(
         help_text="Sequence position within the mission, 0-based."
     )
+
+    # ─── RANGER V3 START: F10.1 geometry ───
+    # Same treatment as SensorLog.location. Write via core.geo.point_from_latlon.
+    location = gis_models.PointField(
+        srid=4326,
+        help_text="WGS84 target position. Source of truth for coordinates.",
+    )
+
+    # LEGACY (CP3 only): removed in CP4's missions 0005 migration.
     latitude = models.FloatField()
     longitude = models.FloatField()
+    # ─── RANGER V3 END: F10.1 geometry ───
     status = models.CharField(
         max_length=20,
         choices=Status.choices,

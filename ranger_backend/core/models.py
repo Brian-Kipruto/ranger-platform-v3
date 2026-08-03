@@ -7,7 +7,13 @@ Tenancy: Robot carries the Organization FK. SensorLog and the reading
 models inherit their tenant THROUGH the robot (no own organization FK) —
 a log cannot belong to a different org than the robot that produced it.
 Org-scoped queries on logs go via robot__organization=...
+
+Geospatial (F10.1): SensorLog carries a PostGIS Point in `location`. During
+CP3 the legacy latitude/longitude float columns still exist alongside it —
+they are removed in CP4, where they return as read-only properties derived
+from the geometry. See ADR-0011.
 """
+from django.contrib.gis.db import models as gis_models
 from django.db import models
 
 
@@ -113,9 +119,24 @@ class SensorLog(models.Model):
 
     timestamp = models.DateTimeField(db_index=True)
 
-    # Geospatial: indexed floats (no PostGIS yet — see ADR for this feature).
+    # ─── RANGER V3 START: F10.1 geometry ───
+    # PostGIS Point, WGS84. GiST-indexed (spatial_index defaults True) so
+    # ST_Within / ST_Intersects against satellite footprints use an index
+    # scan rather than a seq scan (F10.4 correlation).
+    #
+    # ALWAYS write via core.geo.point_from_latlon — never a bare Point(),
+    # which takes (lon, lat) and inverts silently.
+    location = gis_models.PointField(
+        srid=4326,
+        help_text="WGS84 position of this reading. Source of truth for "
+                  "coordinates; latitude/longitude are derived from it.",
+    )
+
+    # LEGACY (CP3 only): removed in CP4's 0007 migration, after which
+    # `latitude`/`longitude` become read-only properties over `location`.
     latitude = models.FloatField(db_index=True)
     longitude = models.FloatField(db_index=True)
+    # ─── RANGER V3 END: F10.1 geometry ───
 
     created_at = models.DateTimeField(auto_now_add=True)
 
