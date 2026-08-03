@@ -106,7 +106,7 @@ ASGI_APPLICATION = "ranger_backend.asgi.application"
 # ─── Database ───
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "django.contrib.gis.db.backends.postgis",
         "NAME": env("POSTGRES_DB", required=True),
         "USER": env("POSTGRES_USER", required=True),
         "PASSWORD": env("POSTGRES_PASSWORD", required=True),
