@@ -192,7 +192,7 @@ export default function LoginPage() {
             <span className="uppercase">
               Robotic Autonomous Navigator for
               <br />
-              Geospatial &amp; Environmental Reconnaissance
+              Geospatial Environmental Reconnaissance
             </span>
           </MonoLabel>
 
