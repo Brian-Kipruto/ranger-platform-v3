@@ -13,7 +13,7 @@
  * Rail collapse state lives here (session-local; not persisted this feature).
  */
 import { useMemo, useState } from "react"
-import { Outlet, useLocation } from "react-router-dom"
+import { Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useAuthStore } from "@/stores/authStore"
 import { useAccentTheme } from "@/hooks/useAccentTheme"
 import { NavRail } from "./NavRail"
@@ -43,8 +43,15 @@ export default function AppShell() {
   useAccentTheme()
 
   const user = useAuthStore((s) => s.user)
+  const logout = useAuthStore((s) => s.logout)
   const { pathname } = useLocation()
+  const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
+
+  const handleLogout = async () => {
+    await logout()
+    navigate("/login", { replace: true })
+  }
 
   const groupNames = useMemo(() => (user?.groups ?? []).map((g) => g.name), [user])
   const role: ConsoleRole = useMemo(
@@ -65,7 +72,7 @@ export default function AppShell() {
 
   return (
     <div className="fixed inset-0 flex bg-surface-0">
-      <NavRail groups={navGroups} collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} user={railUser} />
+      <NavRail groups={navGroups} collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} onLogout={handleLogout} user={railUser} />
 
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar viewCode={meta.code} viewLabel={meta.label} viewSub={meta.sub} role={role} />

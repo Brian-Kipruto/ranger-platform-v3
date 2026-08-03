@@ -27,12 +27,11 @@ import {
   type SortingState,
   type VisibilityState,
 } from "@tanstack/react-table"
-import maplibregl from "maplibre-gl"
-import "maplibre-gl/dist/maplibre-gl.css"
 import { useAuthStore } from "@/stores/authStore"
 import { Panel } from "@/components/console/Panel"
 import { MonoLabel } from "@/components/console/MonoLabel"
 import { MetricTile } from "@/components/console/MetricTile"
+import { FieldMap, type FieldMapHandle } from "@/components/map/FieldMap"
 import {
   getDataLogs,
   getMapData,
@@ -92,11 +91,6 @@ const columns = [
 ]
 
 const PAGE_SIZE = 25
-const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY as string | undefined
-const MAP_STYLE = MAPTILER_KEY
-  ? `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`
-  : null
-const NAIROBI: [number, number] = [36.8219, -1.2921]
 
 export default function DataExplorerPage() {
   const user = useAuthStore((s) => s.user)
@@ -121,12 +115,10 @@ export default function DataExplorerPage() {
 
   const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
-  const mapContainer = useRef<HTMLDivElement | null>(null)
-  const map = useRef<maplibregl.Map | null>(null)
-  const highlightMarker = useRef<maplibregl.Marker | null>(null)
-  const [mapReady, setMapReady] = useState(false)
-  const pendingTrack = useRef<import("@/types/dataLog.types").MapFeatureCollection | null>(null)
-  // Reactive copy of the track for the summary bar (refs don't trigger re-render).
+  // FieldMap owns the MapLibre instance now. The page keeps an imperative
+  // handle (row-click flyTo + highlight) and a reactive copy of the track for
+  // the summary tiles (refs don't trigger re-render).
+  const fieldMap = useRef<FieldMapHandle | null>(null)
   const [trackFc, setTrackFc] = useState<import("@/types/dataLog.types").MapFeatureCollection | null>(null)
   const [exporting, setExporting] = useState(false)
 
@@ -143,52 +135,6 @@ export default function DataExplorerPage() {
     return () => {
       cancelled = true
     }
-  }, [])
-
-  useEffect(() => {
-    if (!mapContainer.current || map.current || !MAP_STYLE) return
-
-    const m = new maplibregl.Map({
-      container: mapContainer.current,
-      style: MAP_STYLE,
-      center: NAIROBI,
-      zoom: 13,
-    })
-    m.addControl(new maplibregl.NavigationControl(), "top-right")
-    m.addControl(new maplibregl.ScaleControl(), "bottom-left")
-
-    m.on("load", () => {
-      m.addSource("track", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      })
-      m.addLayer({
-        id: "track-points",
-        type: "circle",
-        source: "track",
-        paint: {
-          "circle-radius": 4,
-          "circle-color": accent,
-          "circle-stroke-width": 1,
-          "circle-stroke-color": "#ffffff",
-          "circle-opacity": 0.8,
-        },
-      })
-      setMapReady(true)
-      // If a track fetch landed before the map finished loading, apply it now.
-      if (pendingTrack.current) {
-        const src = m.getSource("track") as maplibregl.GeoJSONSource | undefined
-        if (src) src.setData(pendingTrack.current)
-      }
-    })
-
-    map.current = m
-    return () => {
-      m.remove()
-      map.current = null
-      setMapReady(false)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fetchPage = useCallback(async () => {
@@ -216,31 +162,15 @@ export default function DataExplorerPage() {
     getMapData(appliedFilters)
       .then((fc) => {
         if (cancelled) return
-        // Stash the latest track so the load handler can apply it if the
-        // map wasn't ready when this fetch resolved.
-        pendingTrack.current = fc
-        setTrackFc(fc) // reactive copy for the summary bar
-        const src = map.current?.getSource("track") as
-          | maplibregl.GeoJSONSource
-          | undefined
-        if (src) {
-          src.setData(fc)
-          if (fc.features.length > 0) {
-            const b = new maplibregl.LngLatBounds()
-            for (const f of fc.features) {
-              b.extend(f.geometry.coordinates)
-            }
-            map.current?.fitBounds(b, { padding: 40, maxZoom: 16, duration: 600 })
-          }
-        }
+        // FieldMap consumes trackFc via props (setData + fitBounds happen
+        // inside the component). The page keeps trackFc only for the summary.
+        setTrackFc(fc)
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
-    // mapReady in deps: when the map finishes loading AFTER this effect first
-    // ran, this re-runs and applies the data to the now-existing source.
-  }, [appliedFilters, mapReady])
+  }, [appliedFilters])
 
   const handleFetch = () => {
     setPageIndex(0)
@@ -253,16 +183,8 @@ export default function DataExplorerPage() {
   }
 
   const handleRowClick = useCallback((row: DataLog) => {
-    if (!map.current) return
-    const lngLat: [number, number] = [row.longitude, row.latitude]
-    map.current.flyTo({ center: lngLat, zoom: 17, duration: 800 })
-    if (highlightMarker.current) {
-      highlightMarker.current.setLngLat(lngLat)
-    } else {
-      highlightMarker.current = new maplibregl.Marker({ color: "#facc15" })
-        .setLngLat(lngLat)
-        .addTo(map.current)
-    }
+    fieldMap.current?.flyTo(row.longitude, row.latitude, 17)
+    fieldMap.current?.setHighlight(row.longitude, row.latitude)
   }, [])
 
   const handleExport = async () => {
@@ -509,31 +431,20 @@ export default function DataExplorerPage() {
           </div>
         </div>
 
-        {/* MAP PANEL */}
+        {/* MAP PANEL — now the shared FieldMap (basemap toggle comes free) */}
         <div className="lg:w-1/2 min-w-0">
-          <Panel
-            title="FIELD MAP"
-            right={<MonoLabel size="xs" tone="accent">FILTERED TRACK</MonoLabel>}
-            bodyClassName="relative"
-          >
-            {MAP_STYLE ? (
-              <div ref={mapContainer} className="w-full" style={{ height: "68vh" }} />
-            ) : (
-              <div
-                className="w-full flex items-center justify-center text-center font-mono text-[11px] text-fg-dim p-6"
-                style={{ height: "68vh" }}
-              >
-                MAP UNAVAILABLE · VITE_MAPTILER_KEY NOT SET IN ranger_frontend/.env ·
-                ADD IT AND RESTART THE DEV SERVER
-              </div>
-            )}
-          </Panel>
+          <FieldMap
+            ref={fieldMap}
+            accent={accent}
+            track={trackFc}
+            fitToTrack
+            headerTitle="FIELD MAP"
+            headerRight={<MonoLabel size="xs" tone="accent">FILTERED TRACK</MonoLabel>}
+            height="68vh"
+          />
           <p
             className="mt-2 font-mono text-[10px] text-fg-faint cursor-pointer hover:text-fg-dim transition-colors"
-            onClick={() => {
-              highlightMarker.current?.remove()
-              highlightMarker.current = null
-            }}
+            onClick={() => fieldMap.current?.clearHighlight()}
           >
             CLICK A ROW TO FLY THERE · (CLEAR HIGHLIGHT)
           </p>

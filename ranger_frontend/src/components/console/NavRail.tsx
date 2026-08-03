@@ -16,10 +16,11 @@ interface NavRailProps {
   groups: NavGroup[]
   collapsed: boolean
   onToggle: () => void
+  onLogout: () => void
   user: { name: string; role: string; initials: string }
 }
 
-export function NavRail({ groups, collapsed, onToggle, user }: NavRailProps) {
+export function NavRail({ groups, collapsed, onToggle, onLogout, user }: NavRailProps) {
   const { pathname } = useLocation()
   const open = !collapsed
 
@@ -122,6 +123,18 @@ export function NavRail({ groups, collapsed, onToggle, user }: NavRailProps) {
             </div>
           ) : null}
         </div>
+        {/* ─── RANGER V3 START: navrail logout ─── */}
+        <button
+          onClick={onLogout}
+          title="Sign out"
+          className={cn(
+            "mt-1.5 w-full cursor-pointer bg-transparent border border-border rounded-md py-[7px] font-mono text-[10px] tracking-[0.12em] text-fg-faint hover:text-alert hover:border-[color-mix(in_srgb,var(--color-alert)_45%,transparent)] transition-colors",
+            collapsed ? "px-0" : "px-2"
+          )}
+        >
+          {collapsed ? "⏻" : "⏻ SIGN OUT"}
+        </button>
+        {/* ─── RANGER V3 END: navrail logout ─── */}
         <button
           onClick={onToggle}
           className="mt-1.5 w-full cursor-pointer bg-transparent border border-border rounded-md py-[7px] text-fg-faint font-mono text-[10px] tracking-[0.12em] hover:text-fg-muted hover:border-border-strong-2 transition-colors"
