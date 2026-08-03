@@ -37,7 +37,11 @@ DJANGO_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # ─── RANGER V3 START: geospatial ───
+    "django.contrib.gis",  # F10.1: GeoDjango — PostGIS backend + geometry fields
+    # ─── RANGER V3 END: geospatial ───
 ]
+
 
 THIRD_PARTY_APPS = [
     "rest_framework",
