@@ -189,8 +189,11 @@ class MapDataAPIView(generics.GenericAPIView):
             features.append({
                 "type": "Feature",
                 "geometry": {
+                    # GeoJSON is [lng, lat] — which is exactly PostGIS (x, y),
+                    # so this reads straight off the geometry with no flip.
+                    # F10.1: was [log.longitude, log.latitude] over float columns.
                     "type": "Point",
-                    "coordinates": [log.longitude, log.latitude],  # GeoJSON: lng, lat
+                    "coordinates": [log.location.x, log.location.y],
                 },
                 "properties": {
                     "id": log.id,

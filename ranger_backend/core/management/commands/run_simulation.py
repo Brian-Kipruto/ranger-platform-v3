@@ -42,6 +42,7 @@ from core.models import (
     AirQualityLog,
     ImuBaroLog,
 )
+from core.geo import point_from_latlon
 from missions.models import Mission, Waypoint
 
 # Sensor codes we know how to simulate, mapped to the reading model they fill.
@@ -123,6 +124,15 @@ class Command(BaseCommand):
             help=f"Random-walk origin longitude (default {DEFAULT_START_LON}).",
         )
         parser.add_argument(
+            "--seed",
+            type=int,
+            default=None,
+            help="Seed the RNG for reproducible output. Two runs with the same "
+                 "--seed, --count, --start-lat/lon and robot produce identical "
+                 "positions and readings — needed for stable test fixtures and "
+                 "for regenerating demo data deterministically (F10.4).",
+        )
+        parser.add_argument(
             "--clear",
             action="store_true",
             help="Delete ALL existing SensorLogs for the target robot before "
@@ -131,6 +141,14 @@ class Command(BaseCommand):
 
     # ── entry point ───────────────────────────────────────────────────────
     def handle(self, *args, **options):
+        # ─── RANGER V3 START: F10.1 deterministic mode ───
+        if options["seed"] is not None:
+            random.seed(options["seed"])
+            self.stdout.write(self.style.WARNING(
+                f"RNG seeded with {options['seed']} — output is deterministic."
+            ))
+        # ─── RANGER V3 END: F10.1 deterministic mode ───
+
         robot = self._resolve_robot(options["robot_id_str"])
         self.stdout.write(
             self.style.SUCCESS(f"Target robot: {robot.name} ({robot.robot_id_str})")
@@ -354,8 +372,10 @@ class Command(BaseCommand):
 
         # Seed position near the first target so the route looks coherent.
         first = waypoints[start_index]
-        self._lat = first.latitude
-        self._lon = first.longitude
+        # F10.1: Waypoint.latitude/longitude are properties over `location`.
+        # Read the geometry directly — one attribute hop instead of two.
+        self._lat = first.location.y
+        self._lon = first.location.x
         return mission, waypoints, start_index
 
     def _step_toward_waypoint(self, mission, waypoints, wp_index, ts):
@@ -364,14 +384,14 @@ class Command(BaseCommand):
         Returns the (possibly advanced) wp_index.
         """
         target = waypoints[wp_index]
-        d_lat = target.latitude - self._lat
-        d_lon = target.longitude - self._lon
+        d_lat = target.location.y - self._lat
+        d_lon = target.location.x - self._lon
         dist = math.hypot(d_lat, d_lon)
 
         if dist <= WAYPOINT_ARRIVAL_THRESHOLD_DEG:
             # Arrived — snap to the waypoint, mark it done, advance.
-            self._lat = target.latitude
-            self._lon = target.longitude
+            self._lat = target.location.y
+            self._lon = target.location.x
             if target.status != Waypoint.Status.COMPLETED:
                 target.status = Waypoint.Status.COMPLETED
                 target.save(update_fields=["status"])
@@ -422,13 +442,18 @@ class Command(BaseCommand):
         """
         self._step_values()
 
+        # ─── RANGER V3 START: F10.1 geometry write ───
+        # point_from_latlon is keyword-only and asserts the Kenya bbox, so a
+        # transposed lat/lon raises here instead of silently writing a point
+        # in the Indian Ocean. This is the pattern the ROS bridge (F08/F09)
+        # and satellite ingestion (F10.2) must follow too.
         log = SensorLog.objects.create(
             robot=robot,
             mission=mission,
             timestamp=ts,
-            latitude=self._lat,
-            longitude=self._lon,
+            location=point_from_latlon(lat=self._lat, lon=self._lon),
         )
+        # ─── RANGER V3 END: F10.1 geometry write ───
 
         if RADIATION_CODE in self._reading_codes:
             RadiationLog.objects.create(

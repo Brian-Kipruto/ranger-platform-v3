@@ -8,10 +8,13 @@ models inherit their tenant THROUGH the robot (no own organization FK) —
 a log cannot belong to a different org than the robot that produced it.
 Org-scoped queries on logs go via robot__organization=...
 
-Geospatial (F10.1): SensorLog carries a PostGIS Point in `location`. During
-CP3 the legacy latitude/longitude float columns still exist alongside it —
-they are removed in CP4, where they return as read-only properties derived
-from the geometry. See ADR-0011.
+Geospatial (F10.1): `location` (PostGIS Point, WGS84) is the SOLE source of
+truth for coordinates. The legacy latitude/longitude float columns are gone;
+the names survive as read-only properties derived from the geometry, so the
+API contract, CSV export, and admin are unchanged. See ADR-0011.
+
+Never construct a Point directly — use core.geo.point_from_latlon, which
+takes keyword-only arguments and cannot be called with lat/lon transposed.
 """
 from django.contrib.gis.db import models as gis_models
 from django.db import models
@@ -131,11 +134,6 @@ class SensorLog(models.Model):
         help_text="WGS84 position of this reading. Source of truth for "
                   "coordinates; latitude/longitude are derived from it.",
     )
-
-    # LEGACY (CP3 only): removed in CP4's 0007 migration, after which
-    # `latitude`/`longitude` become read-only properties over `location`.
-    latitude = models.FloatField(db_index=True)
-    longitude = models.FloatField(db_index=True)
     # ─── RANGER V3 END: F10.1 geometry ───
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -149,6 +147,25 @@ class SensorLog(models.Model):
             ("view_organization_data", "Can view data for own organization"),
             ("view_all_data", "Can view data across all organizations"),
         )
+
+    # ─── RANGER V3 START: F10.1 derived coordinates ───
+    # These were columns until F10.1's 0007 migration. They are properties now
+    # so that DataLogSerializer, the CSV export header, the Data Explorer table,
+    # and the admin all keep working unchanged against `location`.
+    #
+    # NOTE: being properties, they cannot be used in .filter() / .order_by() /
+    # .values(). Nothing in the codebase did (verified by grep at F10.1); any
+    # future spatial query should use `location` and PostGIS lookups anyway.
+    @property
+    def latitude(self) -> float | None:
+        """Latitude in degrees north, derived from `location`."""
+        return self.location.y if self.location else None
+
+    @property
+    def longitude(self) -> float | None:
+        """Longitude in degrees east, derived from `location`."""
+        return self.location.x if self.location else None
+    # ─── RANGER V3 END: F10.1 derived coordinates ───
 
     def __str__(self) -> str:
         return f"{self.robot.robot_id_str} @ {self.timestamp:%Y-%m-%d %H:%M:%S}"

@@ -4,8 +4,9 @@ Mission planning: a Mission (org-scoped, assigned to a robot) and its
 ordered Waypoints. Separates intent (the plan) from result (the sensor
 logs collected, which FK back to Mission from core).
 
-Geospatial (F10.1): Waypoint carries a PostGIS Point in `location` (legacy
-float columns removed in CP4), and Mission gains `area_of_interest`, a
+Geospatial (F10.1): Waypoint carries a PostGIS Point in `location` — the sole
+source of truth, with latitude/longitude surviving as read-only properties
+derived from it. Mission gains `area_of_interest`, a
 nullable Polygon. The AOI is new — nothing to migrate from — and is what
 satellite queries join against in F10.2. See ADR-0011.
 """
@@ -107,10 +108,6 @@ class Waypoint(models.Model):
         srid=4326,
         help_text="WGS84 target position. Source of truth for coordinates.",
     )
-
-    # LEGACY (CP3 only): removed in CP4's missions 0005 migration.
-    latitude = models.FloatField()
-    longitude = models.FloatField()
     # ─── RANGER V3 END: F10.1 geometry ───
     status = models.CharField(
         max_length=20,
@@ -128,6 +125,18 @@ class Waypoint(models.Model):
                 name="unique_waypoint_order_per_mission",
             )
         ]
+
+    # ─── RANGER V3 START: F10.1 derived coordinates ───
+    @property
+    def latitude(self) -> float | None:
+        """Latitude in degrees north, derived from `location`."""
+        return self.location.y if self.location else None
+
+    @property
+    def longitude(self) -> float | None:
+        """Longitude in degrees east, derived from `location`."""
+        return self.location.x if self.location else None
+    # ─── RANGER V3 END: F10.1 derived coordinates ───
 
     def __str__(self) -> str:
         return f"{self.mission.name} wp#{self.order}"

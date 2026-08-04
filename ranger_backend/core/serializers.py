@@ -15,6 +15,12 @@ None), so an absent reading nulls its whole group cleanly instead of crashing.
 Output shape is FLAT (all reading fields top-level) so TanStack Table
 accessor keys and Recharts dataKeys map directly with no client-side
 flatten step.
+
+F10.1: latitude/longitude are no longer model FIELDS — they are properties
+derived from SensorLog.location (PostGIS Point). ModelSerializer cannot infer
+a serializer field from a property, so both are declared explicitly as
+ReadOnlyField. Meta.fields is UNCHANGED, which is what keeps the API contract,
+the CSV header, and the Data Explorer table identical across the migration.
 """
 from rest_framework import serializers
 
@@ -23,12 +29,19 @@ from .models import SensorLog
 
 class DataLogSerializer(serializers.ModelSerializer):
     # Parent / relations
-    # Parent / relations
     robot_id = serializers.IntegerField(source="robot.id", read_only=True)
     robot_id_str = serializers.CharField(source="robot.robot_id_str", read_only=True)
     robot_name = serializers.CharField(source="robot.name", read_only=True)
     mission_id = serializers.IntegerField(source="mission.id", read_only=True, allow_null=True)
     mission_name = serializers.CharField(source="mission.name", read_only=True, allow_null=True)
+
+    # ─── RANGER V3 START: F10.1 derived coordinates ───
+    # Model properties over `location`, not columns. ReadOnlyField reads the
+    # attribute off the instance, so the emitted JSON is byte-identical to the
+    # pre-migration output.
+    latitude = serializers.ReadOnlyField()
+    longitude = serializers.ReadOnlyField()
+    # ─── RANGER V3 END: F10.1 derived coordinates ───
 
     # Radiation (null if no radiation_data)
     radiation_value = serializers.SerializerMethodField()
