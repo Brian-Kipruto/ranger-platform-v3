@@ -20,4 +20,4 @@ django-cors-headers==4.6.0
 python-dotenv==1.0.1
 
 # Utilities
-Pillow==11.0.0
+Pillow==11.0.0earthengine-api==1.7.38
