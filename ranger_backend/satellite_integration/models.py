@@ -85,6 +85,16 @@ class SatelliteDataset(models.Model):
         null=True, blank=True, help_text="Last acquisition; null = ongoing."
     )
 
+    cloud_property = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Scene property holding cloud cover percent, e.g. "
+                  "CLOUDY_PIXEL_PERCENTAGE (Sentinel-2) or CLOUD_COVER "
+                  "(Landsat C2). Blank = product has no cloud metadata; "
+                  "cloud filters must then be skipped, not applied.",
+    )
+
     description = models.TextField(blank=True, default="")
     is_active = models.BooleanField(default=True)
     is_verified = models.BooleanField(

@@ -28,6 +28,13 @@ SECRET_KEY = env("DJANGO_SECRET_KEY", required=True)
 DEBUG = False  # Overridden in development.py
 ALLOWED_HOSTS: list[str] = []
 
+# ─── RANGER V3 START: Earth Engine (F10.2) ───
+# Credentials live OUTSIDE the repo; only the path is configured here.
+GEE_PROJECT_ID = os.getenv("GEE_PROJECT_ID", "")
+GEE_SERVICE_ACCOUNT_EMAIL = os.getenv("GEE_SERVICE_ACCOUNT_EMAIL", "")
+GEE_KEY_PATH = os.getenv("GEE_KEY_PATH", "")
+# ─── RANGER V3 END: Earth Engine (F10.2) ───
+
 # ─── Applications ───
 DJANGO_APPS = [
     "daphne",  # Must come BEFORE django.contrib.staticfiles to override runserver

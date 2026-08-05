@@ -14,7 +14,12 @@ Two things encoded here that are easy to get wrong later:
    county in one cell. Claiming per-site soil moisture from SMAP would be
    the kind of error a reviewer catches instantly.
 
-2. `archive_start` on Landsat 5 is 1984. The Amoco Laga Balal well was drilled
+2. `cloud_property` is blank for radar and reanalysis products, and that
+   blank is meaningful: filtering on a property a collection does not have
+   returns an EMPTY collection rather than an error. A cloud filter applied
+   to Sentinel-1 would silently report "no scenes" forever.
+
+3. `archive_start` on Landsat 5 is 1984. The Amoco Laga Balal well was drilled
    22 December 1985 — inside the archive. That single date is why the change
    detection story exists at all, so it lives in the data rather than in a
    slide.
@@ -39,6 +44,7 @@ DATASETS = [
         "name": "Sentinel-2 Surface Reflectance (Harmonized)",
         "provider": P.ESA,
         "gee_collection_id": "COPERNICUS/S2_SR_HARMONIZED",
+        "cloud_property": "CLOUDY_PIXEL_PERCENTAGE",
         "resolution_m": 10,
         "temporal_resolution_days": 5,
         "scale": S.SITE,
@@ -57,6 +63,7 @@ DATASETS = [
         "name": "Sentinel-1 SAR GRD",
         "provider": P.ESA,
         "gee_collection_id": "COPERNICUS/S1_GRD",
+        "cloud_property": "",  # radar: no cloud concept
         "resolution_m": 10,
         "temporal_resolution_days": 6,
         "scale": S.SITE,
@@ -73,6 +80,7 @@ DATASETS = [
         "name": "Sentinel-5P NO2 (OFFL L3)",
         "provider": P.ESA,
         "gee_collection_id": "COPERNICUS/S5P/OFFL/L3_NO2",
+        "cloud_property": "",
         "resolution_m": 7000,
         "temporal_resolution_days": 1,
         "scale": S.REGIONAL,
@@ -88,7 +96,8 @@ DATASETS = [
         "code": "smap",
         "name": "SMAP L4 Global Soil Moisture",
         "provider": P.NASA,
-        "gee_collection_id": "NASA/SMAP/SPL4SMGP/007",
+        "gee_collection_id": "NASA/SMAP/SPL4SMGP/008",
+        "cloud_property": "",  # reanalysis-style product
         "resolution_m": 11000,
         "temporal_resolution_days": 0.125,
         "scale": S.REGIONAL,
@@ -107,6 +116,7 @@ DATASETS = [
         "name": "MODIS Terra Land Surface Temperature (MOD11A1)",
         "provider": P.NASA,
         "gee_collection_id": "MODIS/061/MOD11A1",
+        "cloud_property": "",  # QC bands, not a scene-level percent
         "resolution_m": 1000,
         "temporal_resolution_days": 1,
         "scale": S.REGIONAL,
@@ -122,6 +132,7 @@ DATASETS = [
         "name": "Landsat 5 TM Collection 2 Level 2",
         "provider": P.USGS,
         "gee_collection_id": "LANDSAT/LT05/C02/T1_L2",
+        "cloud_property": "CLOUD_COVER",
         "resolution_m": 30,
         "temporal_resolution_days": 16,
         "scale": S.SITE,
@@ -140,6 +151,7 @@ DATASETS = [
         "name": "Landsat 8 OLI/TIRS Collection 2 Level 2",
         "provider": P.USGS,
         "gee_collection_id": "LANDSAT/LC08/C02/T1_L2",
+        "cloud_property": "CLOUD_COVER",
         "resolution_m": 30,
         "temporal_resolution_days": 16,
         "scale": S.SITE,
@@ -156,6 +168,7 @@ DATASETS = [
         "name": "Landsat 9 OLI-2/TIRS-2 Collection 2 Level 2",
         "provider": P.USGS,
         "gee_collection_id": "LANDSAT/LC09/C02/T1_L2",
+        "cloud_property": "CLOUD_COVER",
         "resolution_m": 30,
         "temporal_resolution_days": 16,
         "scale": S.SITE,
@@ -168,6 +181,7 @@ DATASETS = [
         "name": "CHIRPS Daily Precipitation",
         "provider": P.UCSB,
         "gee_collection_id": "UCSB-CHG/CHIRPS/DAILY",
+        "cloud_property": "",
         "resolution_m": 5566,
         "temporal_resolution_days": 1,
         "scale": S.REGIONAL,
@@ -183,6 +197,7 @@ DATASETS = [
         "name": "ERA5-Land Hourly Reanalysis",
         "provider": P.ECMWF,
         "gee_collection_id": "ECMWF/ERA5_LAND/HOURLY",
+        "cloud_property": "",
         "resolution_m": 11132,
         "temporal_resolution_days": 0.0417,
         "scale": S.REGIONAL,
