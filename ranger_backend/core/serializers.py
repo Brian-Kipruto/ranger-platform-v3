@@ -35,6 +35,13 @@ class DataLogSerializer(serializers.ModelSerializer):
     mission_id = serializers.IntegerField(source="mission.id", read_only=True, allow_null=True)
     mission_name = serializers.CharField(source="mission.name", read_only=True, allow_null=True)
 
+    # ─── RANGER V3 START: F10.2 provenance ───
+    # Emitted on every row. A consumer must never have to guess whether a
+    # value was measured, and must never have to look somewhere else to find
+    # out. Adding these two changed the CSV header — deliberately; the header
+    # test in core/tests.py was updated in the same commit.
+    # ─── RANGER V3 END: F10.2 provenance ───
+
     # ─── RANGER V3 START: F10.1 derived coordinates ───
     # Model properties over `location`, not columns. ReadOnlyField reads the
     # attribute off the instance, so the emitted JSON is byte-identical to the
@@ -70,6 +77,8 @@ class DataLogSerializer(serializers.ModelSerializer):
             "timestamp",
             "latitude",
             "longitude",
+            "source",
+            "provenance_note",
             "radiation_value",
             "dose_rate_usvh",
             "pm25",

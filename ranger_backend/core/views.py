@@ -141,6 +141,10 @@ def data_log_export_csv(request):
     fieldnames = [
         "id", "robot_id", "robot_id_str", "robot_name", "mission_id", "mission_name",
         "timestamp", "latitude", "longitude",
+        # F10.2: provenance travels with every exported row. An export that
+        # loses its labels is exactly how modelled data gets mistaken for
+        # measured data downstream.
+        "source", "provenance_note",
         "radiation_value", "dose_rate_usvh",
         "pm25", "pm10",
         "roll", "pitch", "yaw", "pressure_baro", "altitude_baro",
@@ -200,6 +204,10 @@ class MapDataAPIView(generics.GenericAPIView):
                     "timestamp": log.timestamp.isoformat(),
                     "radiation_value": rad.radiation_value if rad is not None else None,
                     "pm25": air.pm25 if air is not None else None,
+                    # F10.2: lets the map badge markers by provenance, so
+                    # modelled points are visibly distinct from measured ones
+                    # without the user opening anything.
+                    "source": log.source,
                 },
             })
         return Response(

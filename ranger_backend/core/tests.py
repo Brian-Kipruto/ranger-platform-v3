@@ -42,6 +42,10 @@ from core.serializers import DataLogSerializer
 EXPECTED_CSV_HEADER = [
     "id", "robot_id", "robot_id_str", "robot_name", "mission_id", "mission_name",
     "timestamp", "latitude", "longitude",
+    # F10.2: provenance columns added deliberately. This test failing is what
+    # forced the decision to be conscious rather than accidental — which is
+    # exactly why the header is pinned.
+    "source", "provenance_note",
     "radiation_value", "dose_rate_usvh",
     "pm25", "pm10",
     "roll", "pitch", "yaw", "pressure_baro", "altitude_baro",

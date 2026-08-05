@@ -15,6 +15,12 @@ API contract, CSV export, and admin are unchanged. See ADR-0011.
 
 Never construct a Point directly — use core.geo.point_from_latlon, which
 takes keyword-only arguments and cannot be called with lat/lon transposed.
+
+Provenance (F10.2): every SensorLog carries a `source` label. RANGER's whole
+claim is dual-source validated data, which is worth nothing if a consumer
+cannot tell a measured value from a modelled one. The label is structural —
+it rides in the API, the map payload, and the CSV export — not a footnote in
+a report. See ADR-0012.
 """
 from django.contrib.gis.db import models as gis_models
 from django.db import models
@@ -121,6 +127,55 @@ class SensorLog(models.Model):
     )
 
     timestamp = models.DateTimeField(db_index=True)
+
+    # ─── RANGER V3 START: F10.2 provenance ───
+    class Source(models.TextChoices):
+        """Where this reading actually came from.
+
+        Ordered most- to least-authoritative. The default is deliberately the
+        LEAST authoritative value: a forgotten label degrades to "simulated"
+        and under-claims, rather than silently asserting a measurement that
+        was never made.
+        """
+
+        LIVE = "live", "Live sensor"
+        # A real instrument reading a real place in real time. Nothing writes
+        # this yet — the ROS bridge does, in F08.
+
+        REPORTED = "reported", "Reported measurement"
+        # A real measurement taken from a published source. Cite it in
+        # provenance_note. Marsabit soil/water sample rows are REPORTED.
+
+        MODELLED = "modelled", "Modelled from published statistics"
+        # Generated to match a published distribution (n, mean, SD, skew,
+        # kurtosis). Statistically faithful, individually fictional. Never
+        # present these as measurements.
+
+        SIMULATED = "simulated", "Simulated"
+        # Synthetic demo data with no real-world referent (run_simulation).
+
+    source = models.CharField(
+        max_length=10,
+        choices=Source.choices,
+        default=Source.SIMULATED,
+        db_index=True,
+        help_text="Provenance of this reading. Drives the honesty of every "
+                  "downstream validation claim.",
+    )
+    provenance_note = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        help_text="Citation or derivation, e.g. 'KNRA Marsabit survey 2026, "
+                  "Table 3.2, sample Gamura-1'. Required in practice for "
+                  "REPORTED and MODELLED rows.",
+    )
+
+    @property
+    def is_measured(self) -> bool:
+        """True only for readings that correspond to a real measurement."""
+        return self.source in (self.Source.LIVE, self.Source.REPORTED)
+    # ─── RANGER V3 END: F10.2 provenance ───
 
     # ─── RANGER V3 START: F10.1 geometry ───
     # PostGIS Point, WGS84. GiST-indexed (spatial_index defaults True) so
