@@ -40,6 +40,8 @@ One markdown file per feature/phase, documenting end-to-end implementation. Each
 - [`06-ui-retrofit-retrospective.md`](./features/06-ui-retrofit-retrospective.md) — what worked, the no-role-field catch, the TS-server phantom errors, carry-forwards
 - [`07-dashboard-fieldmap.md`](./features/07-dashboard-fieldmap.md) — Dashboard retrofit (KPI row, telemetry, fleet, alerts, sensor streams, comms) + shared `<FieldMap>` extraction with 3 basemaps, expand, and blip/readout overlays; real-vs-DEMO data split centralized in one config
 - [`07-dashboard-fieldmap-retrospective.md`](./features/07-dashboard-fieldmap-retrospective.md) — what worked, the blank-map flexbox trap, the truncated-paste red herring, the logout regression, carry-forwards
+- [`10-1-postgis-foundation.md`](./features/10-1-postgis-foundation.md) — F10 epic, sub-feature 1: PostGIS + GeoDjango, geometry as source of truth on SensorLog/Waypoint, Mission AOI, expand→migrate→contract migrations, contract-diff verification, first pytest suite
+- [`10-1-postgis-foundation-retrospective.md`](./features/10-1-postgis-foundation-retrospective.md) — what worked, the passing-checks-with-wrong-ENGINE trap, the ROS/pytest collision, the file-rename friction, carry-forwards to F10.2
 
 ### `decisions/`
 Architecture Decision Records (ADRs). Short, dated records of important technical choices. Format: problem → options considered → decision → consequences.
@@ -54,6 +56,7 @@ Architecture Decision Records (ADRs). Short, dated records of important technica
 - [`0008-design-tokens-and-console-shell.md`](./decisions/0008-design-tokens-and-console-shell.md) — Tailwind v4 @theme tokens + :root runtime accent, retrofit-first adoption, color-mix derivations, group-keyed role nav shaped for RBAC
 - [`0009-demo-login-buttons-dev-only.md`](./decisions/0009-demo-login-buttons-dev-only.md) — The OP/CL/PUB demo login buttons perform REAL seeded-account logins (not a bypass); register requirement to strip them + the plaintext demo-credentials file from production builds
 - [`0010-shared-fieldmap-and-basemaps.md`](./decisions/0010-shared-fieldmap-and-basemaps.md) — Extract one `<FieldMap>` for both Data Explorer and Dashboard; accent-as-prop (paint props can't read CSS vars), `installLayers()` single re-add point on `styledata`, per-screen chrome via flags, key-aware basemap registry
+- [`0011-geospatial-db-postgis-now-timescaledb-later.md`](./decisions/0011-geospatial-db-postgis-now-timescaledb-later.md) — PostGIS adopted for F10, TimescaleDB deferred; geometry(Point,4326) 2D as sole source of truth with lat/lon as derived properties; one sanctioned write path via `core.geo.point_from_latlon`
 
 ### `troubleshooting/`
 Error logs and fixes. Each entry records: what we saw, what caused it, how we fixed it, how to prevent it.
@@ -73,6 +76,8 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 - [`013-ts-server-phantom-module-errors.md`](./troubleshooting/013-ts-server-phantom-module-errors.md) — Editor "Cannot find module" errors for files that exist; stale TS-server cache, restart fixes it, CLI compiler is authoritative
 - [`014-fieldmap-blank-flex-height-collapse.md`](./troubleshooting/014-fieldmap-blank-flex-height-collapse.md) — FieldMap canvas blank (header/toggle render, tiles don't): `flex-1` + explicit height on the same div inside an unconstrained flex column collapsed the map container to 0px; build was clean
 - [`015-truncated-paste-missing-export.md`](./troubleshooting/015-truncated-paste-missing-export.md) — A `has no exported member` TS error + blank-white route caused by an incomplete file paste (export lost); verify exports + line count after pasting large files
+- [`016-geodjango-app-without-postgis-engine.md`](./troubleshooting/016-geodjango-app-without-postgis-engine.md) — `AttributeError: 'DatabaseOperations' object has no attribute 'geo_db_type'`; `django.contrib.gis` was installed but `DATABASES.ENGINE` was still plain postgresql — `check`, `makemigrations`, and `CreateExtension` all pass regardless
+- [`017-ros-pythonpath-breaks-pytest.md`](./troubleshooting/017-ros-pythonpath-breaks-pytest.md) — pytest exits before collection because ROS 2's `PYTHONPATH` leaks a Python 3.10 plugin into the 3.11 venv; run `PYTHONPATH= pytest`
 
 ---
 
@@ -96,4 +101,4 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 
 ---
 
-*Last updated: 2026-06-25*
+*Last updated: 2026-08-03*
