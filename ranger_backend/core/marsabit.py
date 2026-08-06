@@ -92,9 +92,10 @@ SITES = [
         "bbox": (37.2464, 3.5604, 37.2472, 3.5614),
         "n": 1279, "mean": 73.0, "sd": 36.0, "min": 48.0, "max": 272.0, "skew": 3.0,
         "description": (
-            "Amoco Laga Balal #1, drilled 22 December 1985 — inside the "
-            "Landsat 5 archive window, which is what makes drilling-era change "
-            "detection possible."
+            "Amoco Laga Balal #1, drilled 22 December 1985. Landsat 5 has NO "
+            "coverage of this site between 1985-04-15 and 1986-01-12, so the "
+            "drilling was never imaged; the archive is a landscape baseline "
+            "here, not a change-detection subject (verified 2026-08-05)."
         ),
     },
     {

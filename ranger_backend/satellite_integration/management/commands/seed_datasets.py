@@ -19,10 +19,10 @@ Two things encoded here that are easy to get wrong later:
    returns an EMPTY collection rather than an error. A cloud filter applied
    to Sentinel-1 would silently report "no scenes" forever.
 
-3. `archive_start` on Landsat 5 is 1984. The Amoco Laga Balal well was drilled
-   22 December 1985 — inside the archive. That single date is why the change
-   detection story exists at all, so it lives in the data rather than in a
-   slide.
+3. `archive_start` on Landsat 5 is 1984, which makes it the only pre-2017
+   optical baseline available for these sites. It is NOT a drilling-era change
+   detector: there is no imagery of Laga Balal between 1985-04-15 and
+   1986-01-12, and the 22 Dec 1985 well pad is not resolvable at 30 m anyway.
 
 Collection IDs are from the GEE catalog and are NOT verified by this command.
 Run `verify_collections.py` (see docs) against real credentials to confirm
