@@ -13,6 +13,12 @@ urlpatterns = [
     # ─── RANGER V3 START: data explorer ───
     path("api/", include("core.urls")),
     # ─── RANGER V3 END: data explorer ───
+    # ─── RANGER V3 START: satellite EO (F10.2) ───
+    # Included WITH the prefix, unlike core.urls: the satellite surface is a
+    # namespace rather than four sibling endpoints, and F10.3's render route
+    # lands under the same prefix.
+    path("api/satellite/", include("satellite_integration.urls")),
+    # ─── RANGER V3 END: satellite EO (F10.2) ───
 ]
 
 if settings.DEBUG:
