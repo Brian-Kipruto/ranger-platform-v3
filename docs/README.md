@@ -42,6 +42,8 @@ One markdown file per feature/phase, documenting end-to-end implementation. Each
 - [`07-dashboard-fieldmap-retrospective.md`](./features/07-dashboard-fieldmap-retrospective.md) — what worked, the blank-map flexbox trap, the truncated-paste red herring, the logout regression, carry-forwards
 - [`10-1-postgis-foundation.md`](./features/10-1-postgis-foundation.md) — F10 epic, sub-feature 1: PostGIS + GeoDjango, geometry as source of truth on SensorLog/Waypoint, Mission AOI, expand→migrate→contract migrations, contract-diff verification, first pytest suite
 - [`10-1-postgis-foundation-retrospective.md`](./features/10-1-postgis-foundation-retrospective.md) — what worked, the passing-checks-with-wrong-ENGINE trap, the ROS/pytest collision, the file-rename friction, carry-forwards to F10.2
+- [`10-2-gee-integration.md`](./features/10-2-gee-integration.md) — F10 epic, sub-feature 2: Earth Engine client, 10-dataset catalog, four provenance tiers, 12,081 modelled Marsabit points, clipped COG retrieval with PostGIS-asserted footprints, seven org-scoped read endpoints
+- [`10-2-gee-integration-retrospective.md`](./features/10-2-gee-integration-retrospective.md) — what worked, the three stale-state traps, the warning that explained itself away, the frontend provenance gap, carry-forwards to F10.3
 
 ### `decisions/`
 Architecture Decision Records (ADRs). Short, dated records of important technical choices. Format: problem → options considered → decision → consequences.
@@ -57,6 +59,7 @@ Architecture Decision Records (ADRs). Short, dated records of important technica
 - [`0009-demo-login-buttons-dev-only.md`](./decisions/0009-demo-login-buttons-dev-only.md) — The OP/CL/PUB demo login buttons perform REAL seeded-account logins (not a bypass); register requirement to strip them + the plaintext demo-credentials file from production builds
 - [`0010-shared-fieldmap-and-basemaps.md`](./decisions/0010-shared-fieldmap-and-basemaps.md) — Extract one `<FieldMap>` for both Data Explorer and Dashboard; accent-as-prop (paint props can't read CSS vars), `installLayers()` single re-add point on `styledata`, per-screen chrome via flags, key-aware basemap registry
 - [`0011-geospatial-db-postgis-now-timescaledb-later.md`](./decisions/0011-geospatial-db-postgis-now-timescaledb-later.md) — PostGIS adopted for F10, TimescaleDB deferred; geometry(Point,4326) 2D as sole source of truth with lat/lon as derived properties; one sanctioned write path via `core.geo.point_from_latlon`
+- [`0012-satellite-eo-gee-cog-pipeline.md`](./decisions/0012-satellite-eo-gee-cog-pipeline.md) — GEE as primary provider (and the noncommercial-licensing problem it defers), four provenance tiers defaulting to the weakest, three-way tenancy asymmetry, `getDownloadURL` → clipped COG on disk rather than expiring tile URLs, EPSG:4326 with raw pixel values, footprint read from the raster and asserted in PostGIS, `cog_path` never serialized
 
 ### `troubleshooting/`
 Error logs and fixes. Each entry records: what we saw, what caused it, how we fixed it, how to prevent it.
@@ -78,6 +81,8 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 - [`015-truncated-paste-missing-export.md`](./troubleshooting/015-truncated-paste-missing-export.md) — A `has no exported member` TS error + blank-white route caused by an incomplete file paste (export lost); verify exports + line count after pasting large files
 - [`016-geodjango-app-without-postgis-engine.md`](./troubleshooting/016-geodjango-app-without-postgis-engine.md) — `AttributeError: 'DatabaseOperations' object has no attribute 'geo_db_type'`; `django.contrib.gis` was installed but `DATABASES.ENGINE` was still plain postgresql — `check`, `makemigrations`, and `CreateExtension` all pass regardless
 - [`017-ros-pythonpath-breaks-pytest.md`](./troubleshooting/017-ros-pythonpath-breaks-pytest.md) — pytest exits before collection because ROS 2's `PYTHONPATH` leaks a Python 3.10 plugin into the 3.11 venv; run `PYTHONPATH= pytest`
+- [`018-gee-service-account-missing-iam-roles.md`](./troubleshooting/018-gee-service-account-missing-iam-roles.md) — Earth Engine 403s identically for a bad key and a valid key missing IAM roles; the account needs both Service Usage Consumer and Earth Engine Resource Writer
+- [`019-stale-catalog-blank-cloud-property.md`](./troubleshooting/019-stale-catalog-blank-cloud-property.md) — `--max-cloud` silently did nothing because catalog rows carried a blank `cloud_property` since the field was added; `check_gee` verifies the catalog against the world but nothing verified the database against the catalog
 
 ---
 
@@ -101,4 +106,4 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 
 ---
 
-*Last updated: 2026-08-03*
+*Last updated: 2026-08-03* → *Last updated: 2026-08-06*
