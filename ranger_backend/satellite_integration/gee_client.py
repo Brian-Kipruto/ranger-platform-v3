@@ -304,4 +304,187 @@ def collection_exists(collection_id: str) -> bool:
         if isinstance(translated, GEECollectionError):
             return False
         raise translated from exc
+
+
+# ── Download (CP5) ───────────────────────────────────────────────────────
+
+# getDownloadURL refuses requests above roughly 32 MB with an opaque server
+# error. We check first, so the failure names the actual problem — too much
+# area, too fine a scale, or too many bands — instead of a 400 from Google.
+MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024
+
+# Bytes per pixel per band used when estimating. Sentinel-2 SR comes back as
+# int16 (2 bytes), but Earth Engine promotes mixed-type band selections to
+# float32, so estimate at 4 and be wrong in the safe direction.
+_ESTIMATE_BYTES_PER_PIXEL = 4
+
+# Metres per degree of latitude, and per degree of longitude at the equator.
+# Both are approximations on a sphere; at the sizes we clip to (a couple of
+# kilometres) the error is well under one pixel, and this is a guard rail, not
+# a geodesy library.
+_M_PER_DEG_LAT = 110_574.0
+_M_PER_DEG_LON_EQUATOR = 111_320.0
+
+_DOWNLOAD_ATTEMPTS = 3
+_RETRY_STATUS = frozenset({408, 429, 500, 502, 503, 504})
+_CONNECT_TIMEOUT_S = 30
+_READ_TIMEOUT_S = 300
+
+
+class GEEDownloadError(GEEError):
+    """The download URL was issued but fetching the bytes failed."""
+
+
+class GEEPayloadTooLargeError(GEEError):
+    """The requested clip exceeds what getDownloadURL will serve.
+
+    Shrink the AOI, coarsen the scale, or select fewer bands. This is a
+    request-shaping problem, never a transient one, so callers must not retry.
+    """
+
+
+def estimate_download_bytes(
+    *,
+    geometry: GEOSGeometry,
+    scale_m: float,
+    band_count: int,
+    bytes_per_pixel: int = _ESTIMATE_BYTES_PER_PIXEL,
+) -> int:
+    """Approximate the size of a clipped GeoTIFF before requesting it."""
+    import math
+
+    west, south, east, north = geometry.extent
+    mid_lat_rad = math.radians((south + north) / 2.0)
+    # cos() collapses at the poles; nothing we clip is near them, but a zero
+    # here would divide the estimate into infinity.
+    m_per_deg_lon = max(_M_PER_DEG_LON_EQUATOR * math.cos(mid_lat_rad), 1.0)
+
+    width_px = math.ceil((east - west) * m_per_deg_lon / scale_m)
+    height_px = math.ceil((north - south) * _M_PER_DEG_LAT / scale_m)
+    return max(width_px, 1) * max(height_px, 1) * max(band_count, 1) * bytes_per_pixel
+
+
+def _fetch_bytes(url: str, max_bytes: int) -> bytes:
+    """GET `url`, streaming, with bounded retries and a hard size ceiling."""
+    import time
+
+    import requests
+
+    last_error: Exception | None = None
+
+    for attempt in range(1, _DOWNLOAD_ATTEMPTS + 1):
+        try:
+            with requests.get(
+                url, stream=True, timeout=(_CONNECT_TIMEOUT_S, _READ_TIMEOUT_S)
+            ) as response:
+                if response.status_code in _RETRY_STATUS:
+                    last_error = GEEDownloadError(
+                        f"HTTP {response.status_code} from the download endpoint"
+                    )
+                    raise last_error
+                response.raise_for_status()
+
+                # Never trust Content-Length alone — cap while reading, so a
+                # mis-declared or absent header cannot fill the disk.
+                buffer = bytearray()
+                for chunk in response.iter_content(chunk_size=1 << 20):
+                    buffer.extend(chunk)
+                    if len(buffer) > max_bytes:
+                        raise GEEPayloadTooLargeError(
+                            f"Download exceeded {max_bytes} bytes mid-stream; "
+                            "aborted. Reduce the AOI, the scale, or the bands."
+                        )
+                return bytes(buffer)
+
+        except GEEPayloadTooLargeError:
+            raise  # never retry a request that is simply too big
+        except Exception as exc:  # requests errors and the retry raise above
+            last_error = exc
+            if attempt == _DOWNLOAD_ATTEMPTS:
+                break
+            backoff = 2 ** attempt
+            logger.warning(
+                "Download attempt %d/%d failed (%s); retrying in %ds",
+                attempt, _DOWNLOAD_ATTEMPTS, exc, backoff,
+            )
+            time.sleep(backoff)
+
+    raise GEEDownloadError(
+        f"Download failed after {_DOWNLOAD_ATTEMPTS} attempts: {last_error}"
+    ) from last_error
+
+
+def download_clipped_geotiff(
+    *,
+    asset_id: str,
+    geometry: GEOSGeometry,
+    bands: list[str] | None = None,
+    scale_m: float = 10.0,
+    crs: str = "EPSG:4326",
+    max_bytes: int = MAX_DOWNLOAD_BYTES,
+) -> bytes:
+    """Download one scene, clipped to `geometry`, as GeoTIFF bytes.
+
+    Args:
+        asset_id: full Earth Engine image ID, e.g.
+            "COPERNICUS/S2_SR_HARMONIZED/20260118T073211_...". This is the
+            durable identifier; tile URLs are not.
+        geometry: clip region, WGS84. CLIPPING IS NOT OPTIONAL — a full
+            Sentinel-2 tile is ~1 GB and the sites are 100-300 m across, so an
+            unclipped request would spend Community Tier quota on a million
+            times more pixels than anybody looks at.
+        bands: bands to select. None means every band in the image, which for
+            Sentinel-2 SR is 20-odd at mixed native resolutions. Pass the
+            catalog's `dataset.bands`.
+        scale_m: output pixel size in metres. Earth Engine resamples to this
+            regardless of `crs`.
+        crs: output projection. EPSG:4326 by default so the raster shares a CRS
+            with SensorLog geometry, the AOI polygon, MapLibre, and deck.gl —
+            no reprojection anywhere in the stack (ADR-0012).
+        max_bytes: ceiling, checked before the request and again while reading.
+
+    Returns:
+        Raw GeoTIFF bytes. The caller decides whether they become a COG.
+
+    Raises:
+        GEEPayloadTooLargeError: the clip is too big to serve. Not transient.
+        GEEDownloadError: the bytes could not be fetched.
+        GEEAuthenticationError, GEEQuotaError, GEECollectionError: as elsewhere.
+    """
+    initialize()
+    import ee
+
+    band_list = list(bands) if bands else []
+    estimated = estimate_download_bytes(
+        geometry=geometry, scale_m=scale_m, band_count=len(band_list) or 1
+    )
+    if estimated > max_bytes:
+        raise GEEPayloadTooLargeError(
+            f"Estimated {estimated / 1e6:.1f} MB exceeds the {max_bytes / 1e6:.0f} MB "
+            f"download limit ({len(band_list) or 'all'} band(s) at {scale_m} m over "
+            f"{geometry.extent}). Reduce --buffer-m, raise the scale, or select "
+            "fewer bands."
+        )
+
+    region = _to_ee_geometry(geometry)
+    try:
+        image = ee.Image(asset_id)
+        if band_list:
+            image = image.select(band_list)
+        url = image.getDownloadURL({
+            "region": region,
+            "scale": scale_m,
+            "crs": crs,
+            "format": "GEO_TIFF",
+            # False, or Earth Engine hands back a ZIP of one file per band.
+            "filePerBand": False,
+        })
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+    logger.info(
+        "Downloading %s (%d band(s), %s m, est %.1f MB)",
+        asset_id, len(band_list) or 0, scale_m, estimated / 1e6,
+    )
+    return _fetch_bytes(url, max_bytes)
 # ─── RANGER V3 END: gee client ───
