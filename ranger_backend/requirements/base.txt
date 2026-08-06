@@ -20,4 +20,31 @@ django-cors-headers==4.6.0
 python-dotenv==1.0.1
 
 # Utilities
-Pillow==11.0.0earthengine-api==1.7.38
+Pillow==11.0.0
+
+# ─── RANGER V3 START: satellite EO (F10.2) ───
+# Earth Engine. Pulls google-auth and friends; imported lazily by gee_client so
+# a missing key never breaks `manage.py check` or the test suite.
+earthengine-api==1.7.38
+
+# Explicit, though earthengine-api already depends on it. gee_client streams
+# download URLs through requests directly, and a direct import deserves a
+# direct pin rather than inheriting someone else's dependency graph.
+requests==2.34.2
+
+# Raster I/O and COG generation (CP5).
+#
+# rasterio is PINNED TO 1.4.x on purpose: 1.5.0 declares requires_python
+# >=3.12 and this venv is 3.11. pip would resolve backwards on its own, but a
+# silent downgrade is not a plan.
+#
+# INSTALL AS WHEELS ONLY:
+#     pip install --only-binary=:all: -r requirements/base.txt
+# The manylinux wheels bundle their own GDAL, which is why the host's GDAL
+# 3.4.1 is irrelevant here. A source build would try to link against it and
+# fail slowly and confusingly. Never source-build these two.
+rasterio==1.4.3
+rio-cogeo==7.0.2
+# rio-cogeo additionally pulls morecantile and pydantic 2. Harmless alongside
+# Django, but you should know they arrived and why.
+# ─── RANGER V3 END: satellite EO (F10.2) ───
