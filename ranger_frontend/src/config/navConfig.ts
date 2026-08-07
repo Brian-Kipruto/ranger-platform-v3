@@ -50,7 +50,7 @@ export function roleFromGroups(groupNames: string[], isSuperuser: boolean): Cons
 }
 
 // The three screens that actually exist today.
-const BUILT_PATHS = new Set(["/dashboard", "/data", "/visualizations"])
+const BUILT_PATHS = new Set(["/dashboard", "/data", "/visualizations", "/satellite"])
 
 // Item factory — `path` decides built vs stub automatically.
 function item(id: string, code: string, label: string, path: string, badge?: number): NavItem {
@@ -73,6 +73,10 @@ const OPERATOR_GROUPS: NavGroup[] = [
     items: [
       item("data", "DAT", "Data Explorer", "/data"),
       item("visualizations", "CHT", "Visualizations", "/visualizations"),
+      // F10.3. After Visualizations rather than after Alerts (where the
+      // mockup puts it): SAT belongs beside the other data-reading screens,
+      // and Alerts/Reports are the acting-on-it pair.
+      item("satellite", "SAT", "Satellite", "/satellite"),
       item("alerts", "ALT", "Alerts", "/alerts", 1),
       item("reports", "RPT", "Reports", "/reports"),
     ],
@@ -105,6 +109,10 @@ const CLIENT_GROUPS: NavGroup[] = [
     items: [
       item("data", "DAT", "Data Explorer", "/data"),
       item("visualizations", "CHT", "Visualizations", "/visualizations"),
+      // F10.3. After Visualizations rather than after Alerts (where the
+      // mockup puts it): SAT belongs beside the other data-reading screens,
+      // and Alerts/Reports are the acting-on-it pair.
+      item("satellite", "SAT", "Satellite", "/satellite"),
       item("alerts", "ALT", "Alerts", "/alerts", 1),
       item("reports", "RPT", "Reports", "/reports"),
     ],
@@ -154,5 +162,14 @@ export const VIEW_META: Record<string, { code: string; label: string; sub: strin
   "/ai": { code: "AI", label: "R.A.N.G.E.R. Assistant", sub: "// Gemma 2 on-device" },
   "/admin": { code: "ADM", label: "Admin Console", sub: "// orgs · billing" },
   "/community": { code: "PUB", label: "Community Portal", sub: "// public data" },
+  // NOT "// change detection", which is what the mockup's subtitle says.
+  // Landsat 5 has no coverage of the Dec 1985 drilling window and the pad is
+  // not visible at 30 m, so change detection is demoted (F10.2 retrospective).
+  // A nav subtitle is not the place to make a claim the data cannot support.
+  "/satellite": {
+    code: "SAT",
+    label: "Satellite Integration",
+    sub: "// EO imagery · ground truth",
+  },
 }
 // ─── RANGER V3 END: nav config ───
