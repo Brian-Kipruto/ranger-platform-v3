@@ -20,6 +20,7 @@ import csv
 from datetime import datetime, timedelta
 
 from django.http import HttpResponse
+from django.db.models import Count
 from rest_framework import generics, permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -31,6 +32,11 @@ from .serializers import DataLogSerializer
 # Safeguard: cap unpaginated chart/map payloads. If a filtered set exceeds
 # this, we return the most-recent N (V2 §3.1.4 strategy).
 MAX_CHART_POINTS = 5000
+
+# Distinct provenance_note strings returned in the map summary. Seven Marsabit
+# sites produce seven; the ceiling exists so an unfiltered multi-tenant set
+# cannot turn a summary into a dump.
+NOTE_SUMMARY_LIMIT = 12
 
 
 def _base_org_queryset(user):
@@ -169,10 +175,21 @@ class MapDataAPIView(generics.GenericAPIView):
     permission_classes = (permissions.IsAuthenticated,)
     pagination_class = None
 
-    def get_queryset(self):
+    def get_filtered_queryset(self):
+        """The FULL filtered set, uncapped.
+
+        Split out from get_queryset (which caps) because the provenance
+        summary must describe every row the user's filters select, not the
+        5,000 the map happens to draw. Summarising the capped sample and
+        presenting it as the set is how a banner ends up claiming things
+        about data it never looked at.
+        """
         qs = _base_org_queryset(self.request.user)
         qs = _apply_filters(qs, self.request.query_params)
-        qs = qs.order_by("timestamp")
+        return qs.order_by("timestamp")
+
+    def get_queryset(self):
+        qs = self.get_filtered_queryset()
         if qs.count() > MAX_CHART_POINTS:
             keep_ids = list(
                 qs.order_by("-timestamp")
@@ -208,10 +225,77 @@ class MapDataAPIView(generics.GenericAPIView):
                     # modelled points are visibly distinct from measured ones
                     # without the user opening anything.
                     "source": log.source,
+                    # F10.3 CP0: the tier alone says MODELLED; the note says
+                    # modelled from WHAT. A label without a citation is a
+                    # disclaimer, not provenance — and the Data Explorer's
+                    # banner quotes this verbatim for an all-modelled set.
+                    "provenance_note": log.provenance_note,
                 },
             })
         return Response(
-            {"type": "FeatureCollection", "features": features},
+            {
+                "type": "FeatureCollection",
+                "features": features,
+                # ─── RANGER V3 START: map provenance summary (F10.3 CP0.5) ───
+                "provenance": self._provenance_summary(len(features)),
+                # ─── RANGER V3 END: map provenance summary (F10.3 CP0.5) ───
+            },
             status=status.HTTP_200_OK,
         )
+
+    def _provenance_summary(self, returned):
+        """Provenance over the FULL filtered set, not the capped sample.
+
+        Two aggregates on the uncapped queryset:
+          by_source  tier -> count, so the UI states a number it checked
+          notes      distinct provenance_note strings
+
+        `notes` is a LIST because a multi-site filter spans several citations
+        (one Table 3.1 row per site). The frontend must not pick one and
+        present it as the set's citation — quoting Boji's n and mean over a
+        set that is mostly Dukana is a wrong citation, which is worse than no
+        citation, because it reads as authoritative and does not survive
+        anyone opening the actual table.
+
+        Capped at a sane number: a set spanning hundreds of distinct notes is
+        one the banner should summarise, not enumerate.
+        """
+        qs = self.get_filtered_queryset()
+
+        counts = (
+            qs.values("source")
+            .annotate(n=Count("id"))
+            .order_by()
+        )
+        by_source = {row["source"]: row["n"] for row in counts}
+        total = sum(by_source.values())
+
+        # .order_by() with NO argument is load-bearing, not tidying.
+        # get_filtered_queryset() orders by timestamp; chaining .distinct()
+        # onto an ordered queryset makes Django add the ordering column to
+        # the SELECT, so Postgres runs `SELECT DISTINCT provenance_note,
+        # timestamp` and every row is distinct because every timestamp is.
+        # 1,819 Forole points sharing ONE citation came back as 1,819
+        # citations, and the banner reported "12+" instead of quoting the
+        # single real one. Clear the ordering first.
+        notes = list(
+            qs.order_by()
+            .exclude(provenance_note="")
+            .values_list("provenance_note", flat=True)
+            .distinct()[:NOTE_SUMMARY_LIMIT + 1]
+        )
+        notes_truncated = len(notes) > NOTE_SUMMARY_LIMIT
+        notes = notes[:NOTE_SUMMARY_LIMIT]
+
+        return {
+            "total": total,
+            "by_source": by_source,
+            "notes": notes,
+            "notes_truncated": notes_truncated,
+            # The map drew `returned` of `total`. Surfacing this is what lets
+            # the status line stop saying "MAP SHOWS FULL TRACK" when it does
+            # not.
+            "returned": returned,
+            "truncated": returned < total,
+        }
 # ─── RANGER V3 END: data explorer views ───

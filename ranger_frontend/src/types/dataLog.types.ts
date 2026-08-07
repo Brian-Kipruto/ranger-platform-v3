@@ -10,6 +10,45 @@
  * null on all ~230 of its rows).
  */
 
+// ─── provenance (F10.2 backend, F10.3 CP0 frontend) ────────────────
+/** SensorLog.source — the four provenance tiers, most to least
+ *  authoritative. Mirrors core.models.SensorLog.Source EXACTLY; if that
+ *  TextChoices changes, this changes. */
+export type DataSource = "live" | "reported" | "modelled" | "simulated"
+
+/** Display metadata per tier.
+ *
+ *  Colours are HEX LITERALS, not CSS vars, and deliberately so: these feed
+ *  MapLibre paint expressions as well as React styles, and paint props
+ *  cannot read CSS variables (see the FieldMap header invariants). One
+ *  definition, both consumers.
+ *
+ *  The palette matches the console's semantic tokens: ok / info / warn /
+ *  dim. Measured tiers read as "good", generated tiers as "caution". */
+export const SOURCE_META: Record<
+  DataSource,
+  { label: string; short: string; color: string }
+> = {
+  live: { label: "Live sensor", short: "LIVE", color: "#4be08a" },
+  reported: { label: "Reported measurement", short: "RPT", color: "#36c5f0" },
+  modelled: { label: "Modelled", short: "MOD", color: "#f5a623" },
+  simulated: { label: "Simulated", short: "SIM", color: "#7a828f" },
+}
+
+/** Tiers backed by a real instrument reading a real place. Everything else
+ *  is generated and must never be presented as a measurement. */
+export const MEASURED_SOURCES: readonly DataSource[] = ["live", "reported"]
+
+/** Narrowing helper for payloads that predate the field or carry a tier we
+ *  do not know about yet. Falls back to the LEAST authoritative tier — the
+ *  same direction the backend default leans (see SensorLog.Source), so an
+ *  unknown value under-claims instead of asserting a measurement. */
+export function asDataSource(value: unknown): DataSource {
+  return typeof value === "string" && value in SOURCE_META
+    ? (value as DataSource)
+    : "simulated"
+}
+
 /** One flattened sensor log row — the shape of /api/data-logs/ results[] and
  *  /api/chart-data/ array items. Reading fields are null when that reading is
  *  absent. */
@@ -23,6 +62,11 @@ export interface DataLog {
   timestamp: string // ISO 8601
   latitude: number
   longitude: number
+  // Provenance (F10.2). Present on EVERY row out of DataLogSerializer —
+  // never optional, because a type that lets you forget it is a type that
+  // invites 12,081 modelled points rendering as measurements.
+  source: DataSource
+  provenance_note: string
   // Radiation (null if no radiation_data)
   radiation_value: number | null
   dose_rate_usvh: number | null
@@ -63,6 +107,10 @@ export interface MapPointProperties {
   timestamp: string
   radiation_value: number | null
   pm25: number | null
+  // F10.2 emits `source` here; F10.3 CP0 adds `provenance_note` so a marker
+  // popup can cite the derivation rather than only naming the tier.
+  source: DataSource
+  provenance_note: string
 }
 
 /** A single GeoJSON Point feature. coordinates are [lng, lat] (GeoJSON spec
@@ -76,10 +124,32 @@ export interface MapFeature {
   properties: MapPointProperties
 }
 
+/** Provenance over the FULL filtered set (F10.3 CP0.5).
+ *
+ *  Computed server-side on the UNCAPPED queryset. `features` is capped at
+ *  MAX_CHART_POINTS, so nothing derived from features.length may be
+ *  presented as describing the set — that is the whole reason this block
+ *  exists. */
+export interface MapProvenanceSummary {
+  /** Rows the filters select, before the map's point cap. */
+  total: number
+  /** tier -> count, over all `total` rows. */
+  by_source: Partial<Record<DataSource, number>>
+  /** Distinct provenance_note strings. Several sites = several notes; never
+   *  pick one and present it as the citation for the set. */
+  notes: string[]
+  notes_truncated: boolean
+  /** How many features the map actually received. */
+  returned: number
+  /** returned < total — the map is showing a sample. */
+  truncated: boolean
+}
+
 /** The /api/map-data/ response. */
 export interface MapFeatureCollection {
   type: "FeatureCollection"
   features: MapFeature[]
+  provenance: MapProvenanceSummary
 }
 
 // ─── Filter dropdown option shapes ─────────────────────────────────

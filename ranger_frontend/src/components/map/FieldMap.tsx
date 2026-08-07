@@ -106,6 +106,58 @@ const TRACK_LAYER = "track-points"
 // Blip status → semantic color (hex literals matching index.css tokens;
 // JS-created marker DOM can't read CSS vars). live=ok, mqtt=warn, offline=alert,
 // idle=info.
+/**
+ * Track-point colour BY PROVENANCE (F10.3 CP0).
+ *
+ * A modelled point and a measured point must not be the same colour on a map
+ * that IS the argument. Falls through to the org accent for any tier not
+ * listed, so a future SensorLog.Source value still renders.
+ *
+ * Defined once, at module scope, because it is consumed in two places that
+ * must not drift: addLayer (first install) and setPaintProperty (refresh
+ * after the accent or the style changes).
+ *
+ * Hex literals mirror SOURCE_META in dataLog.types.ts — paint props cannot
+ * read CSS vars, see the header invariants.
+ */
+function trackColorExpression(accent: string) {
+  return [
+    "match",
+    ["get", "source"],
+    "live", "#4be08a",
+    "reported", "#36c5f0",
+    "modelled", "#f5a623",
+    "simulated", "#7a828f",
+    accent,
+  ] as unknown as maplibregl.ExpressionSpecification
+}
+
+/**
+ * Generated tiers render slightly transparent with a thinner ring, so the
+ * measured/generated distinction survives a projector, a greyscale print,
+ * and colour-blind viewers — three conditions a pitch room can supply all
+ * at once, and none of which colour alone survives.
+ */
+function trackOpacityExpression() {
+  return [
+    "match",
+    ["get", "source"],
+    "live", 0.9,
+    "reported", 0.9,
+    0.6,
+  ] as unknown as maplibregl.ExpressionSpecification
+}
+
+function trackStrokeWidthExpression() {
+  return [
+    "match",
+    ["get", "source"],
+    "live", 1.4,
+    "reported", 1.4,
+    0.6,
+  ] as unknown as maplibregl.ExpressionSpecification
+}
+
 const BLIP_COLOR: Record<FieldMapBlip["status"], string> = {
   live: "#4be08a",
   mqtt: "#f5a623",
@@ -224,16 +276,41 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
           source: TRACK_SOURCE,
           paint: {
             "circle-radius": 4,
-            "circle-color": accent, // hex prop — NOT var(--accent)
-            "circle-stroke-width": 1,
+            // F10.3 CP0: colour by provenance, not by tenant accent.
+            "circle-color": trackColorExpression(accent),
+            "circle-stroke-width": trackStrokeWidthExpression(),
             "circle-stroke-color": "#ffffff",
-            "circle-opacity": 0.8,
+            "circle-opacity": trackOpacityExpression(),
           },
         })
+      }
+
+      // The guards above prevent re-ADDING a layer that already exists. They
+      // do NOT update one whose paint props changed since it was added —
+      // which happens on every accent change, and from CP4 on every raster
+      // layer switch. Refresh explicitly rather than relying on idempotence
+      // to mean "correct".
+      if (m.getLayer(TRACK_LAYER)) {
+        m.setPaintProperty(TRACK_LAYER, "circle-color", trackColorExpression(accent))
       }
     },
     [accent]
   )
+
+  // The init effect below has [] deps — it MUST run exactly once — so every
+  // value it closes over is frozen at mount. `installLayers` is not frozen:
+  // it reads `accent` today, and from F10.3 CP4 it will read the active
+  // raster layer, image id and opacity, all of which change constantly.
+  //
+  // `styledata` fires on EVERY basemap switch. Without this ref, switching
+  // the basemap re-installs the layers as they were at first render, so a
+  // user who changes layers and then changes basemap silently gets their
+  // original layer back. Nothing in the type system or the test suite
+  // catches that; it is a screenshot-loop bug (gotcha 8).
+  const installLayersRef = useRef(installLayers)
+  useEffect(() => {
+    installLayersRef.current = installLayers
+  }, [installLayers])
 
   // ── init once (StrictMode-safe), cleanup on unmount ──
   useEffect(() => {
@@ -251,14 +328,14 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
     m.addControl(new maplibregl.ScaleControl(), "bottom-left")
 
     m.on("load", () => {
-      installLayers(m)
+      installLayersRef.current(m)
       setMapReady(true)
     })
 
     // After every setStyle, the style reloads and wipes sources/layers.
     // styledata fires once the new style is ready — re-add our layers here.
     m.on("styledata", () => {
-      installLayers(m)
+      installLayersRef.current(m)
     })
 
     map.current = m
@@ -285,6 +362,16 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
       m.fitBounds(b, { padding: 40, maxZoom: 16, duration: 600 })
     }
   }, [track, fitToTrack, mapReady])
+
+  // ── accent change: repaint the existing layer ──
+  // installLayers only runs on load/styledata, neither of which fires when
+  // the accent prop changes (a tenant switch). Without this, the fallback
+  // colour in the match expression goes stale until the next style reload.
+  useEffect(() => {
+    const m = map.current
+    if (!m || !mapReady || !m.getLayer(TRACK_LAYER)) return
+    m.setPaintProperty(TRACK_LAYER, "circle-color", trackColorExpression(accent))
+  }, [accent, mapReady])
 
   // ── basemap switch: setStyle; layers re-added by the styledata handler ──
   useEffect(() => {

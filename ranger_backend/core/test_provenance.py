@@ -119,4 +119,199 @@ class TestProvenanceSurvivesEveryExit:
 
         response = authed_client.get(reverse("map-data"))
         assert response.data["features"][0]["properties"]["source"] == "modelled"
+
+    def test_map_data_properties_include_provenance_note(
+        self, authed_client, sensor_log_at, robot
+    ):
+        """F10.3 CP0. The tier says MODELLED; the note says modelled from WHAT.
+
+        The Data Explorer quotes this verbatim in its all-modelled banner, so
+        a map payload that carries the label but drops the citation produces a
+        banner that warns without evidencing — which is a disclaimer, not
+        provenance. The serializer and CSV have carried both since F10.2 CP2;
+        this closes the third path out of the backend.
+        """
+        log = sensor_log_at(3.7167, 37.9672, robot=robot)
+        log.source = SensorLog.Source.MODELLED
+        log.provenance_note = KNRA_CITATION
+        log.save(update_fields=["source", "provenance_note"])
+
+        response = authed_client.get(reverse("map-data"))
+        props = response.data["features"][0]["properties"]
+        assert props["source"] == "modelled"
+        assert props["provenance_note"] == KNRA_CITATION
+
+    def test_all_three_backend_paths_agree_on_provenance(
+        self, authed_client, sensor_log_at, robot
+    ):
+        """Serializer, CSV and map payload must not drift apart.
+
+        Three independent code paths emit provenance. Each has its own test
+        above; this one asserts they agree, because the failure that actually
+        bites is not "one path is broken" but "two paths disagree and the
+        screen believes the wrong one".
+        """
+        log = sensor_log_at(3.7167, 37.9672, robot=robot)
+        log.source = SensorLog.Source.REPORTED
+        log.provenance_note = KNRA_CITATION
+        log.save(update_fields=["source", "provenance_note"])
+
+        serialized = DataLogSerializer(SensorLog.objects.get(pk=log.pk)).data
+
+        csv_rows = list(csv.DictReader(io.StringIO(
+            authed_client.get(reverse("data-log-export-csv")).content.decode()
+        )))
+        map_props = authed_client.get(
+            reverse("map-data")
+        ).data["features"][0]["properties"]
+
+        assert (
+            serialized["source"]
+            == csv_rows[0]["source"]
+            == map_props["source"]
+            == "reported"
+        )
+        assert (
+            serialized["provenance_note"]
+            == csv_rows[0]["provenance_note"]
+            == map_props["provenance_note"]
+            == KNRA_CITATION
+        )
+
+
+@pytest.mark.django_db
+class TestMapProvenanceSummary:
+    """F10.3 CP0.5 — the summary describes the FILTERED set, not the sample.
+
+    The map payload is capped at MAX_CHART_POINTS. Before this block existed,
+    the console derived its provenance banner from the capped features array,
+    so it announced "ALL 5,000 POINTS IN THIS SET ARE MODELLED" directly above
+    a record count of 12,081 — and quoted ONE arbitrary feature's citation as
+    though it covered every site. These tests exist so the numbers on screen
+    are numbers something actually counted.
+    """
+
+    def test_total_counts_the_uncapped_set(
+        self, authed_client, sensor_log_at, robot, settings
+    ):
+        from core import views
+
+        for i in range(6):
+            log = sensor_log_at(3.71 + i * 0.001, 37.96, robot=robot)
+            log.source = SensorLog.Source.MODELLED
+            log.save(update_fields=["source"])
+
+        # Cap below the row count so the sample is genuinely smaller.
+        original = views.MAX_CHART_POINTS
+        views.MAX_CHART_POINTS = 3
+        try:
+            data = authed_client.get(reverse("map-data")).data
+        finally:
+            views.MAX_CHART_POINTS = original
+
+        assert len(data["features"]) == 3
+        assert data["provenance"]["total"] == 6
+        assert data["provenance"]["returned"] == 3
+        assert data["provenance"]["truncated"] is True
+        assert data["provenance"]["by_source"]["modelled"] == 6
+
+    def test_not_truncated_when_everything_fits(
+        self, authed_client, sensor_log_at, robot
+    ):
+        sensor_log_at(3.71, 37.96, robot=robot)
+        prov = authed_client.get(reverse("map-data")).data["provenance"]
+        assert prov["truncated"] is False
+        assert prov["returned"] == prov["total"] == 1
+
+    def test_distinct_notes_are_all_returned(
+        self, authed_client, sensor_log_at, robot
+    ):
+        """Several sites means several citations.
+
+        The frontend needs to KNOW there are several, so it can decline to
+        quote one of them as the citation for the whole set. A summary that
+        collapsed this to a single string would hand the UI a wrong citation
+        and no way to detect it.
+        """
+        for i, note in enumerate(["Table 3.1 (Boji)", "Table 3.1 (Forole)"]):
+            log = sensor_log_at(3.71 + i * 0.001, 37.96, robot=robot)
+            log.source = SensorLog.Source.MODELLED
+            log.provenance_note = note
+            log.save(update_fields=["source", "provenance_note"])
+
+        prov = authed_client.get(reverse("map-data")).data["provenance"]
+        assert sorted(prov["notes"]) == ["Table 3.1 (Boji)", "Table 3.1 (Forole)"]
+        assert prov["notes_truncated"] is False
+
+    def test_many_rows_sharing_one_note_collapse_to_one(
+        self, authed_client, sensor_log_at, robot
+    ):
+        """The regression that the two-note test above could not catch.
+
+        seed_marsabit writes ONE citation per site across every point in it,
+        so a single-site filter must yield exactly one note and the banner
+        must quote it. Chaining .distinct() onto a timestamp-ordered queryset
+        instead returned one "distinct" note PER ROW — 1,819 Forole points
+        came back as 1,819 citations and the banner said "12+ distinct
+        citations" where it should have cited Table 3.1 directly.
+
+        The earlier test used two rows with two different notes, where the
+        correct and incorrect answers are both 2. This one uses many rows and
+        one note, where they differ.
+        """
+        shared = "Modelled from KNRA Marsabit survey, Table 3.1 (Forole)"
+        for i in range(8):
+            log = sensor_log_at(3.71 + i * 0.001, 37.96, robot=robot)
+            log.source = SensorLog.Source.MODELLED
+            log.provenance_note = shared
+            log.save(update_fields=["source", "provenance_note"])
+
+        prov = authed_client.get(reverse("map-data")).data["provenance"]
+        assert prov["total"] == 8
+        assert prov["notes"] == [shared]
+        assert prov["notes_truncated"] is False
+
+    def test_blank_notes_are_excluded(self, authed_client, sensor_log_at, robot):
+        """An empty string is not a citation; it must not pad the count the
+        banner uses to decide whether it can quote one."""
+        sensor_log_at(3.71, 37.96, robot=robot)  # default source, blank note
+        prov = authed_client.get(reverse("map-data")).data["provenance"]
+        assert prov["notes"] == []
+
+    def test_summary_respects_filters(
+        self, authed_client, sensor_log_at, robot, mission
+    ):
+        """The summary must describe the FILTERED set.
+
+        If it counted the whole org regardless of filters, every narrowing
+        would still read 12,081 and the banner would be a constant rather
+        than a readout — which is indistinguishable from a broken one.
+        """
+        a = sensor_log_at(3.71, 37.96, robot=robot, mission=mission)
+        a.source = SensorLog.Source.MODELLED
+        a.save(update_fields=["source"])
+        b = sensor_log_at(3.72, 37.97, robot=robot)
+        b.source = SensorLog.Source.REPORTED
+        b.save(update_fields=["source"])
+
+        prov = authed_client.get(
+            reverse("map-data"), {"mission_id": mission.id}
+        ).data["provenance"]
+        assert prov["total"] == 1
+        assert prov["by_source"] == {"modelled": 1}
+
+    def test_summary_is_org_scoped(
+        self, authed_client, sensor_log_at, robot, other_robot
+    ):
+        """Tenancy holds on the aggregate too.
+
+        An aggregate that skipped the org filter would put another tenant's
+        row count on this tenant's screen — a leak that shows up as a wrong
+        number rather than as an error, so nothing else would catch it.
+        """
+        sensor_log_at(3.71, 37.96, robot=robot)
+        sensor_log_at(3.72, 37.97, robot=other_robot)
+
+        prov = authed_client.get(reverse("map-data")).data["provenance"]
+        assert prov["total"] == 1
 # ─── RANGER V3 END: provenance tests ───

@@ -31,19 +31,22 @@ import { useAuthStore } from "@/stores/authStore"
 import { Panel } from "@/components/console/Panel"
 import { MonoLabel } from "@/components/console/MonoLabel"
 import { MetricTile } from "@/components/console/MetricTile"
+import { SourceChip } from "@/components/console/SourceChip"
 import { FieldMap, type FieldMapHandle } from "@/components/map/FieldMap"
 import {
   getDataLogs,
   getMapData,
-  getRobotOptions,
-  getMissionOptions,
+  getFilterOptions,
   exportCsv,
 } from "@/api/dataLogs"
-import type {
-  DataLog,
-  DataLogFilters,
-  RobotOption,
-  MissionOption,
+import {
+  MEASURED_SOURCES,
+  SOURCE_META,
+  type DataSource,
+  type DataLog,
+  type DataLogFilters,
+  type RobotOption,
+  type MissionOption,
 } from "@/types/dataLog.types"
 
 const EM_DASH = "—"
@@ -76,6 +79,16 @@ const col = createColumnHelper<DataLog>()
 const columns = [
   col.accessor("timestamp", { header: "Timestamp", cell: (c) => fmtTime(c.getValue()) }),
   col.accessor("robot_id_str", { header: "Robot" }),
+  // THIRD, deliberately: the eye reaches the provenance tier before it
+  // reaches any instrument name, mission name or dose value. A source column
+  // parked at the far right after fourteen others is a column nobody scrolls
+  // to, which is the same as not having one.
+  col.accessor("source", {
+    header: "Source",
+    cell: (c) => (
+      <SourceChip source={c.getValue()} note={c.row.original.provenance_note} />
+    ),
+  }),
   col.accessor("mission_name", { header: "Mission", cell: (c) => c.getValue() ?? EM_DASH }),
   col.accessor("latitude", { header: "Lat", cell: (c) => fmtCoord(c.getValue()) }),
   col.accessor("longitude", { header: "Lon", cell: (c) => fmtCoord(c.getValue()) }),
@@ -124,8 +137,14 @@ export default function DataExplorerPage() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([getRobotOptions(), getMissionOptions()])
-      .then(([r, m]) => {
+    // ONE call, not two. Each of the old getRobotOptions/getMissionOptions
+    // pulled the full unpaginated chart-data feed independently; at 12,081
+    // Marsabit points (capped at MAX_CHART_POINTS=5000) that was 10,000 rows
+    // over the wire to populate two dropdowns, before /map-data/ fetched
+    // another 5,000. Invisible at 435 Nairobi points, not invisible on
+    // conference wifi. The real fix is /api/robots/ + /api/missions/.
+    getFilterOptions()
+      .then(({ robots: r, missions: m }) => {
         if (!cancelled) {
           setRobots(r)
           setMissions(m)
@@ -206,6 +225,78 @@ export default function DataExplorerPage() {
     () => computeStat((trackFc?.features ?? []).map((f) => f.properties.pm25)),
     [trackFc]
   )
+
+  /**
+   * Provenance banner over the FULL filtered set (trackFc), not the current
+   * page. Paging to row 26 must not change what the screen claims about the
+   * data.
+   *
+   * Rules, in order:
+   *   - every point one non-measured tier -> name that tier, cite the note
+   *   - a mix including non-measured      -> say mixed, give the count
+   *   - everything measured               -> no banner; the default is honest
+   */
+  const provenanceBanner = useMemo(() => {
+    const prov = trackFc?.provenance
+    if (!prov || prov.total === 0) return null
+
+    const tiers = Object.keys(prov.by_source) as DataSource[]
+    const nonMeasured = tiers.filter((t) => !MEASURED_SOURCES.includes(t))
+    if (nonMeasured.length === 0) return null
+
+    const nonMeasuredCount = nonMeasured.reduce(
+      (sum, t) => sum + (prov.by_source[t] ?? 0),
+      0
+    )
+
+    // The citation. One distinct note -> quote it. Several -> do NOT pick
+    // one: a banner quoting Boji's n and mean over a set that is mostly
+    // Dukana is a WRONG citation, and a wrong citation reads as
+    // authoritative right up until someone opens Table 3.1. Name the shared
+    // document instead and point at the per-row chips, which are correct.
+    const note =
+      prov.notes.length === 1
+        ? prov.notes[0]
+        : prov.notes.length > 1
+          ? `${prov.notes.length}${prov.notes_truncated ? "+" : ""} distinct ` +
+            `citations across this set — hover a SOURCE chip for the ` +
+            `per-row provenance.`
+          : ""
+
+    if (tiers.length === 1) {
+      const meta = SOURCE_META[tiers[0]] ?? SOURCE_META.simulated
+      return {
+        color: meta.color,
+        headline:
+          `ALL ${prov.total.toLocaleString()} POINTS IN THIS SET ARE ` +
+          `${meta.label.toUpperCase()} — NOT MEASUREMENTS`,
+        note,
+      }
+    }
+    return {
+      color: SOURCE_META.modelled.color,
+      headline:
+        `MIXED PROVENANCE — ${nonMeasuredCount.toLocaleString()} OF ` +
+        `${prov.total.toLocaleString()} POINTS ARE NOT MEASUREMENTS`,
+      note: note || "See the SOURCE column and the marker colours.",
+    }
+  }, [trackFc])
+
+  /** Tiers actually present in the filtered track, for the map legend. */
+  const presentSources = useMemo(() => {
+    // From the uncapped summary when available: a tier present in the set but
+    // absent from the 5,000 drawn points still belongs in the key.
+    const seen = new Set<DataSource>(
+      trackFc?.provenance
+        ? (Object.keys(trackFc.provenance.by_source) as DataSource[])
+        : (trackFc?.features ?? []).map((f) => f.properties.source)
+    )
+    // Fixed order (most to least authoritative), not Set insertion order,
+    // so the legend does not reshuffle between fetches.
+    return (["live", "reported", "modelled", "simulated"] as const).filter((s) =>
+      seen.has(s)
+    )
+  }, [trackFc])
 
   const table = useReactTable({
     data: rows,
@@ -310,10 +401,36 @@ export default function DataExplorerPage() {
           <span className="text-fg-dim">
             {totalCount} RECORD{totalCount === 1 ? "" : "S"}
             {isFiltered ? " · FILTERED" : ""}
-            {" · MAP SHOWS FULL TRACK · TABLE PAGINATED"}
+            {trackFc?.provenance?.truncated
+              ? ` · MAP SHOWS ${trackFc.provenance.returned.toLocaleString()} OF ` +
+                `${trackFc.provenance.total.toLocaleString()} · TABLE PAGINATED`
+              : " · MAP SHOWS FULL TRACK · TABLE PAGINATED"}
           </span>
         )}
       </div>
+
+      {/* ── provenance banner (full filtered set, not the current page) ── */}
+      {!error && provenanceBanner ? (
+        <div
+          className="mb-3 px-3 py-2.5 rounded-md border"
+          style={{
+            borderColor: `${provenanceBanner.color}55`,
+            background: `${provenanceBanner.color}12`,
+          }}
+        >
+          <div
+            className="font-mono text-[10px] tracking-[0.08em] leading-[1.5]"
+            style={{ color: provenanceBanner.color }}
+          >
+            ⚠ {provenanceBanner.headline}
+          </div>
+          {provenanceBanner.note ? (
+            <div className="mt-1.5 font-mono text-[9.5px] leading-[1.6] text-fg-dim">
+              {provenanceBanner.note}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* ── summary metric tiles (full filtered set) ── */}
       {!error && (radiationStat || pm25Stat) ? (
@@ -439,7 +556,28 @@ export default function DataExplorerPage() {
             track={trackFc}
             fitToTrack
             headerTitle="FIELD MAP"
-            headerRight={<MonoLabel size="xs" tone="accent">FILTERED TRACK</MonoLabel>}
+            headerRight={
+              // Markers are coloured by provenance (F10.3 CP0), so the map
+              // needs a key. Only the tiers actually present are shown —
+              // a legend listing four tiers over a single-tier set implies
+              // a variety the data does not have.
+              <div className="flex items-center gap-2.5">
+                {presentSources.map((src) => (
+                  <span
+                    key={src}
+                    className="flex items-center gap-1 font-mono text-[8.5px] tracking-[0.06em]"
+                    style={{ color: SOURCE_META[src].color }}
+                    title={SOURCE_META[src].label}
+                  >
+                    <span
+                      className="w-[6px] h-[6px] rounded-full"
+                      style={{ background: SOURCE_META[src].color }}
+                    />
+                    {SOURCE_META[src].short}
+                  </span>
+                ))}
+              </div>
+            }
             height="68vh"
           />
           <p
