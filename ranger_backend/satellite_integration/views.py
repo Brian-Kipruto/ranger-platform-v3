@@ -37,12 +37,15 @@ from datetime import datetime, timedelta
 
 from django.contrib.gis.geos import GEOSException
 from django.utils import timezone
-from rest_framework import generics, permissions, status
+from django.http import FileResponse
+from django.shortcuts import get_object_or_404
+from rest_framework import generics, permissions, status, views
 from rest_framework.response import Response
 
 from core.geo import polygon_from_bbox
 from core.pagination import StandardResultsSetPagination
 
+from . import cog, render
 from .models import SatelliteDataset, SatelliteImage, SatelliteQuery
 from .serializers import (
     SatelliteDatasetSerializer,
@@ -323,4 +326,87 @@ class SatelliteCoverageAPIView(generics.GenericAPIView):
             {"type": "FeatureCollection", "features": features},
             status=status.HTTP_200_OK,
         )
+class SatelliteImageRenderAPIView(views.APIView):
+    """GET /api/satellite/images/<pk>/render/?layer=<key>
+
+    Serves a PNG rendered from OUR COG, cached beside it. See render.py for
+    why not GEE tile URLs and why not a tile server.
+
+    Tenancy is re-checked HERE, per request. cog_path is deliberately not
+    serialized (ADR-0012 §6) because DEBUG serves MEDIA_URL with no auth, so
+    a leaked path would make every org-scoped queryset bypassable by string
+    concatenation. That protection is worth nothing if the endpoint that
+    turns an id into pixels does not scope the lookup itself.
+    """
+
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request, pk):
+        # Scoped queryset, not SatelliteImage.objects — a 404 for another
+        # tenant's id, never a 403, because 403 confirms the row exists.
+        image = get_object_or_404(_org_images(request.user), pk=pk)
+
+        layer_key = request.query_params.get("layer", "").strip()
+        if not layer_key:
+            return Response(
+                {
+                    "detail": "A ?layer= parameter is required.",
+                    "available": sorted(
+                        l.key for l in render.layers_for(image.dataset.code)
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            layer = render.get_layer(image.dataset.code, layer_key)
+        except render.UnknownLayer as exc:
+            # 404, and never a fallback to another dataset's recipe. Falling
+            # back is how an S2 index gets computed over an L9 scene, which
+            # renders perfectly and is wrong.
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        if not image.has_cog:
+            return Response(
+                {
+                    "detail": (
+                        "This scene has a catalog row but no COG on disk. "
+                        "Run fetch_scenes for it."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            absolute = cog.absolute_cog_path(image.cog_path)
+        except cog.CogError as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_409_CONFLICT
+            )
+
+        if not absolute.exists():
+            return Response(
+                {"detail": f"COG missing on disk: {image.cog_path}"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            png = render.cached_or_render(absolute, layer)
+        except render.MissingBands as exc:
+            # 409, not 500: the row and the file are both fine, they just do
+            # not carry what this layer needs. Naming the band is the whole
+            # value of the message.
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_409_CONFLICT
+            )
+
+        response = FileResponse(open(png, "rb"), content_type="image/png")
+        # private: this is tenant data behind auth, never shared-cacheable.
+        response["Cache-Control"] = "private, max-age=3600"
+        response["X-Ranger-Layer"] = layer.key
+        return response
+
+
 # ─── RANGER V3 END: satellite api views ───

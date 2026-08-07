@@ -46,6 +46,16 @@ urlpatterns = [
         views.SatelliteImageDetailAPIView.as_view(),
         name="satellite-image-detail",
     ),
+    # ─── RANGER V3 START: render route (F10.3 CP1) ───
+    # BEFORE the <int:pk>/ detail route is irrelevant here (distinct suffix),
+    # but keep it adjacent to its sibling so the image surface reads as one
+    # thing.
+    path(
+        "images/<int:pk>/render/",
+        views.SatelliteImageRenderAPIView.as_view(),
+        name="satellite-image-render",
+    ),
+    # ─── RANGER V3 END: render route (F10.3 CP1) ───
     path(
         "coverage/",
         views.SatelliteCoverageAPIView.as_view(),
