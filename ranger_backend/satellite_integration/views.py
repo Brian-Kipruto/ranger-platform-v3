@@ -37,7 +37,7 @@ from datetime import datetime, timedelta
 
 from django.contrib.gis.geos import GEOSException
 from django.utils import timezone
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponseNotModified
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status, views
 from rest_framework.response import Response
@@ -393,7 +393,7 @@ class SatelliteImageRenderAPIView(views.APIView):
             )
 
         try:
-            png = render.cached_or_render(absolute, layer)
+            png, stats = render.cached_or_render(absolute, layer)
         except render.MissingBands as exc:
             # 409, not 500: the row and the file are both fine, they just do
             # not carry what this layer needs. Naming the band is the whole
@@ -402,10 +402,41 @@ class SatelliteImageRenderAPIView(views.APIView):
                 {"detail": str(exc)}, status=status.HTTP_409_CONFLICT
             )
 
+        # ─── RANGER V3 START: revalidating cache (F10.3 CP4.1) ───
+        # max-age=3600 was wrong, and wrong in a way that hides itself: the
+        # browser served an hour-old PNG WITHOUT asking, so changing the
+        # render logic changed nothing on screen and the stale image looked
+        # like a rendering bug. Worse before a live demo, where the fix you
+        # just shipped silently does not appear.
+        #
+        # no-cache does NOT mean "do not store" — it means "revalidate every
+        # time". The browser keeps the bytes and asks; an unchanged render
+        # answers 304 with no body. Same bandwidth saving, no staleness.
+        etag = f'"{png.stat().st_mtime_ns:x}-{layer.key}"'
+        if request.headers.get("If-None-Match") == etag:
+            return HttpResponseNotModified()
+        # ─── RANGER V3 END: revalidating cache (F10.3 CP4.1) ───
+
         response = FileResponse(open(png, "rb"), content_type="image/png")
         # private: this is tenant data behind auth, never shared-cacheable.
-        response["Cache-Control"] = "private, max-age=3600"
+        response["Cache-Control"] = "private, no-cache, max-age=0"
+        response["ETag"] = etag
         response["X-Ranger-Layer"] = layer.key
+
+        # ─── RANGER V3 START: ramp stats (F10.3 CP4.1) ───
+        # Index and scalar layers are percentile-stretched to the scene, so
+        # colour is relative to THIS image, not an absolute physical value.
+        # The legend that says so needs these numbers, and the body is
+        # already a PNG — so they ride in headers.
+        response["X-Ranger-Stats"] = json.dumps(stats)
+        # Same-origin today (the Vite proxy), cross-origin in any deployment
+        # that splits the hosts. Without this the browser hides custom
+        # headers from JS and the legend silently goes blank — a failure that
+        # would only show up after deployment.
+        response["Access-Control-Expose-Headers"] = (
+            "X-Ranger-Stats, X-Ranger-Layer, ETag"
+        )
+        # ─── RANGER V3 END: ramp stats (F10.3 CP4.1) ───
         return response
 
 

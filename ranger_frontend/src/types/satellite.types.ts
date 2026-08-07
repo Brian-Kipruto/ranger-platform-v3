@@ -166,6 +166,44 @@ export interface CoverageCollection {
 export type SatelliteLayer = "truecolor" | "ndvi" | "thermal" | "bsi"
 
 /**
+ * What a rendered ramp actually means (F10.3 CP4.1).
+ *
+ * Index and scalar layers are percentile-stretched to the SCENE, because an
+ * absolute -1..1 ramp rendered NDVI over arid Marsabit as a flat wash. That
+ * makes colour relative to one image rather than an absolute physical value,
+ * so the range MUST be shown. This block is what the legend renders; a
+ * stretched ramp without it implies precision it does not have.
+ */
+export interface RampStats {
+  layer: SatelliteLayer
+  kind: "rgb" | "index" | "scalar"
+  units: string
+  palette: string
+  stretch: "percentile" | "absolute"
+  stretch_pct: [number, number]
+  /** Ends of the colour ramp, in physical units. */
+  display_min: number
+  display_max: number
+  /** Full observed range, before the percentile clip. */
+  data_min: number | null
+  data_max: number | null
+  valid_px: number
+}
+
+/** Ramp stops, mirroring render._ramp so the legend gradient matches the
+ *  pixels. If one side changes, so must the other. */
+export const PALETTE_STOPS: Record<string, string[]> = {
+  rdylgn: ["rgb(166,54,42)", "rgb(246,232,160)", "rgb(26,122,52)"],
+  thermal: ["rgb(8,24,92)", "rgb(222,96,40)", "rgb(255,244,190)"],
+  bare: ["rgb(26,62,34)", "rgb(196,172,120)", "rgb(250,248,240)"],
+}
+
+export function paletteGradient(palette: string): string {
+  const stops = PALETTE_STOPS[palette] ?? PALETTE_STOPS.rdylgn
+  return `linear-gradient(to right, ${stops.join(", ")})`
+}
+
+/**
  * Which layers each dataset can actually render.
  *
  * Mirrors render.LAYERS, which is keyed on the (dataset, layer) PAIR — there

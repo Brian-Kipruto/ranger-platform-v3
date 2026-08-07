@@ -50,6 +50,7 @@ above with extra steps.
 """
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -125,8 +126,27 @@ class Layer:
     apply_calibration: bool = True
     #: Shown under the panel. Says what the number IS and what it is not.
     caption: str = ""
-    #: Display range for index/scalar layers, after any calibration.
+    #: PHYSICAL bounds for index/scalar layers, after calibration. Used to
+    #: clamp, and as the fallback domain when a scene has too few valid
+    #: pixels to derive percentiles from.
     domain: tuple[float, float] = (-1.0, 1.0)
+    #: "percentile" stretches the ramp to what this SCENE actually contains;
+    #: "absolute" pins it to `domain`.
+    #:
+    #: Percentile is the default because absolute was unreadable: NDVI over
+    #: arid Marsabit occupies roughly 0.1-0.25 of a -1..1 ramp, so every
+    #: pixel landed in the same two adjacent colours and the layer rendered
+    #: as a flat wash — on a screen whose argument is that NDVI explains
+    #: inter-site variance.
+    #:
+    #: The trade is real: a stretched ramp's colours mean something RELATIVE
+    #: to one scene, not an absolute physical value, so the render MUST
+    #: report the range it used and the UI MUST show it. An unlabelled
+    #: stretched ramp implies absolute values it does not have. That is why
+    #: render_png returns stats rather than just pixels.
+    stretch: str = "percentile"
+    #: Percentile clip, low and high.
+    stretch_pct: tuple[float, float] = (2.0, 98.0)
     units: str = ""
     palette: str = "rdylgn"
     notes: tuple[str, ...] = field(default_factory=tuple)
@@ -274,18 +294,48 @@ def _band_index(available: list[str], name: str) -> int:
         ) from None
 
 
-def _stretch(array, lo_pct=2.0, hi_pct=98.0):
-    """Percentile stretch to 0-255, ignoring nodata."""
+def _percentiles(array, lo_pct, hi_pct):
+    """(lo, hi) over finite values, or None if there are none."""
     import numpy as np
 
     valid = array[np.isfinite(array)]
     if valid.size == 0:
-        return np.zeros(array.shape, dtype="uint8")
-    lo, hi = np.percentile(valid, [lo_pct, hi_pct])
+        return None
+    lo, hi = (float(v) for v in np.percentile(valid, [lo_pct, hi_pct]))
     if hi <= lo:
-        hi = lo + 1.0
-    scaled = (array - lo) / (hi - lo)
+        hi = lo + 1e-6
+    return lo, hi
+
+
+def _to_uint8(array, lo, hi):
+    import numpy as np
+
+    scaled = (array - lo) / (hi - lo if hi > lo else 1.0)
     return (np.clip(scaled, 0.0, 1.0) * 255).astype("uint8")
+
+
+def _rgb_shared_stretch(data, lo_pct, hi_pct):
+    """Stretch R, G and B against ONE shared range.
+
+    Per-band independent stretching is the obvious implementation and it is
+    wrong for low-contrast scenes: each band gets normalised to its own
+    narrow range, which amplifies sensor noise into colour casts and destroys
+    the relative band balance. Over arid Marsabit that turned a tan landscape
+    into saturated blue and orange blocks — a true-colour layer that looks
+    nothing like the ground beneath it costs more credibility than it buys.
+
+    One range across all three preserves the balance between bands, which is
+    what makes the result read as true colour.
+    """
+    import numpy as np
+
+    stacked = np.concatenate([band[np.isfinite(band)].ravel() for band in data])
+    if stacked.size == 0:
+        return np.zeros(data[0].shape + (3,), dtype="uint8"), (0.0, 1.0)
+    lo, hi = (float(v) for v in np.percentile(stacked, [lo_pct, hi_pct]))
+    if hi <= lo:
+        hi = lo + 1e-6
+    return np.dstack([_to_uint8(data[i], lo, hi) for i in range(3)]), (lo, hi)
 
 
 def _ramp(array, domain, palette):
@@ -310,7 +360,7 @@ def _ramp(array, domain, palette):
     return out.astype("uint8")
 
 
-def render_png(cog_path: Path, layer: Layer, dest: Path) -> Path:
+def render_png(cog_path: Path, layer: Layer, dest: Path) -> dict:
     """Render one layer of a COG to an RGBA PNG at `dest`.
 
     Nodata becomes alpha 0 rather than black: an opaque rectangle painted
@@ -337,26 +387,44 @@ def render_png(cog_path: Path, layer: Layer, dest: Path) -> Path:
     if layer.apply_calibration and layer.calibration is not None:
         data = layer.calibration.apply(data)
 
+    lo_pct, hi_pct = layer.stretch_pct
+
     if layer.kind == "rgb":
-        rgb = np.dstack([_stretch(data[i]) for i in range(3)])
-    elif layer.kind == "index":
-        with np.errstate(invalid="ignore", divide="ignore"):
-            if len(layer.bands) == 2:
-                a, b = data[0], data[1]
-                index = (a - b) / (a + b)
-            else:
-                # BSI: ((B11+B4) - (B8+B2)) / ((B11+B4) + (B8+B2))
-                swir_red = data[0] + data[1]
-                nir_blue = data[2] + data[3]
-                index = (swir_red - nir_blue) / (swir_red + nir_blue)
-        valid &= np.isfinite(index)
-        rgb = _ramp(np.nan_to_num(index), layer.domain, layer.palette)
-    else:  # scalar
-        scalar = data[0]
-        if layer.units == "°C":
-            scalar = scalar - 273.15  # Kelvin -> Celsius, for display only
-        valid &= np.isfinite(scalar)
-        rgb = _ramp(np.nan_to_num(scalar), layer.domain, layer.palette)
+        rgb, (display_lo, display_hi) = _rgb_shared_stretch(data, lo_pct, hi_pct)
+        field = None
+    else:
+        if layer.kind == "index":
+            with np.errstate(invalid="ignore", divide="ignore"):
+                if len(layer.bands) == 2:
+                    a, b = data[0], data[1]
+                    field = (a - b) / (a + b)
+                else:
+                    # BSI: ((B11+B4) - (B8+B2)) / ((B11+B4) + (B8+B2))
+                    swir_red = data[0] + data[1]
+                    nir_blue = data[2] + data[3]
+                    field = (swir_red - nir_blue) / (swir_red + nir_blue)
+        else:  # scalar
+            field = data[0]
+            if layer.units == "°C":
+                field = field - 273.15  # Kelvin -> Celsius, display only
+
+        # Clamp to the layer's PHYSICAL bounds first. A division blowing up
+        # near zero can produce values outside the index's definition, and a
+        # single such pixel would drag the percentiles with it.
+        field = np.clip(field, layer.domain[0], layer.domain[1])
+        valid &= np.isfinite(field)
+
+        if layer.stretch == "percentile":
+            bounds = _percentiles(np.where(valid, field, np.nan), lo_pct, hi_pct)
+            # Too few valid pixels to derive a range from — fall back to the
+            # absolute domain rather than inventing one from noise.
+            display_lo, display_hi = bounds if bounds else layer.domain
+        else:
+            display_lo, display_hi = layer.domain
+
+        rgb = _ramp(
+            np.nan_to_num(field), (display_lo, display_hi), layer.palette
+        )
 
     alpha = (valid * 255).astype("uint8")
     rgba = np.dstack([rgb, alpha])
@@ -365,7 +433,55 @@ def render_png(cog_path: Path, layer: Layer, dest: Path) -> Path:
     tmp = dest.with_suffix(dest.suffix + ".partial")
     Image.fromarray(rgba, mode="RGBA").save(tmp, format="PNG", optimize=True)
     os.replace(tmp, dest)
-    return dest
+
+    stats = _stats(
+        layer, field, valid, display_lo, display_hi
+    )
+    _write_stats(dest, stats)
+    return stats
+
+
+def _stats(layer, field, valid, display_lo, display_hi) -> dict:
+    """What the ramp actually means, for the legend.
+
+    This travels with every render because a percentile-stretched ramp is
+    only defensible if the range it used is on screen. Without these numbers
+    the colours imply absolute values they do not carry.
+    """
+    import numpy as np
+
+    valid_count = int(valid.sum())
+    if field is not None and valid_count:
+        observed = field[valid]
+        data_min = float(np.nanmin(observed))
+        data_max = float(np.nanmax(observed))
+    else:
+        data_min = data_max = None
+
+    return {
+        "layer": layer.key,
+        "kind": layer.kind,
+        "units": layer.units,
+        "palette": layer.palette,
+        "stretch": layer.stretch,
+        "stretch_pct": list(layer.stretch_pct),
+        "display_min": round(display_lo, 6),
+        "display_max": round(display_hi, 6),
+        "data_min": round(data_min, 6) if data_min is not None else None,
+        "data_max": round(data_max, 6) if data_max is not None else None,
+        "valid_px": valid_count,
+    }
+
+
+def _stats_path(png: Path) -> Path:
+    return png.with_suffix(png.suffix + ".json")
+
+
+def _write_stats(png: Path, stats: dict) -> None:
+    path = _stats_path(png)
+    tmp = path.with_suffix(path.suffix + ".partial")
+    tmp.write_text(json.dumps(stats), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def cache_path(cog_path: Path, layer_key: str) -> Path:
@@ -373,15 +489,26 @@ def cache_path(cog_path: Path, layer_key: str) -> Path:
     return cog_path.with_suffix(f".{layer_key}.png")
 
 
-def cached_or_render(cog_path: Path, layer: Layer) -> Path:
-    """Return a current PNG for this layer, rendering only if needed.
+def cached_or_render(cog_path: Path, layer: Layer) -> tuple[Path, dict]:
+    """Return a current PNG for this layer AND its stats, rendering if needed.
 
     Staleness is by mtime against the COG. Re-downloading a scene with
     --overwrite must invalidate every derived PNG, or the map keeps showing
     the old pixels with the new metadata beside them.
+
+    Stats are cached in a sidecar next to the PNG. Without that, a cache hit
+    could serve pixels but not the range they were stretched to — and the
+    legend would go blank on exactly the second view onwards. A missing or
+    unreadable sidecar forces a re-render rather than serving unlabelled
+    pixels.
     """
     dest = cache_path(cog_path, layer.key)
-    if dest.exists() and dest.stat().st_mtime >= cog_path.stat().st_mtime:
-        return dest
-    return render_png(cog_path, layer, dest)
+    stats_file = _stats_path(dest)
+    fresh = dest.exists() and dest.stat().st_mtime >= cog_path.stat().st_mtime
+    if fresh and stats_file.exists():
+        try:
+            return dest, json.loads(stats_file.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            pass  # corrupt sidecar — re-render rather than serve unlabelled
+    return dest, render_png(cog_path, layer, dest)
 # ─── RANGER V3 END: raster rendering ───

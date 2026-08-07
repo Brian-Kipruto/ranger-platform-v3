@@ -38,6 +38,7 @@ import type {
   SatelliteLayer,
   SatelliteQuery,
   SatelliteQueryDetail,
+  RampStats,
 } from "../types/satellite.types"
 
 /**
@@ -174,6 +175,11 @@ export interface RenderedLayer {
   url: string
   /** Identity for cache-busting an ImageSource update. */
   id: string
+  /** The ramp's meaning, for the legend. Null if the header was missing —
+   *  which in a split deployment means Access-Control-Expose-Headers was not
+   *  set, so the UI must degrade to "no legend" rather than to a legend of
+   *  wrong numbers. */
+  stats: RampStats | null
   /**
    * MUST be called when the layer changes or the component unmounts.
    * Object URLs are held by the document until revoked; a map that switches
@@ -195,14 +201,29 @@ export async function fetchLayerBlobUrl(
   imageId: number,
   layer: SatelliteLayer
 ): Promise<RenderedLayer> {
-  const { data } = await api.get<Blob>(
+  const response = await api.get<Blob>(
     `/satellite/images/${imageId}/render/`,
     { params: { layer }, responseType: "blob" }
   )
-  const url = URL.createObjectURL(data)
+  const url = URL.createObjectURL(response.data)
+
+  // The body is a PNG, so the ramp's range rides in a header. A parse
+  // failure yields null and no legend — never a partial one, because a
+  // legend showing the wrong range is worse than none.
+  let stats: RampStats | null = null
+  const raw = response.headers?.["x-ranger-stats"]
+  if (typeof raw === "string") {
+    try {
+      stats = JSON.parse(raw) as RampStats
+    } catch {
+      stats = null
+    }
+  }
+
   return {
     url,
     id: `${imageId}:${layer}`,
+    stats,
     revoke: () => URL.revokeObjectURL(url),
   }
 }

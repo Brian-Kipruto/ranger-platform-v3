@@ -131,10 +131,12 @@ class TestRenderPng:
                      band_names=["B8", "B4"])
 
         layer = render.LAYERS[("s2", "ndvi")]
-        out = render.render_png(src, layer, tmp_path / "out.png")
+        out = tmp_path / "out.png"
+        stats = render.render_png(src, layer, out)
 
         assert out.exists()
         assert out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+        assert stats["layer"] == "ndvi"
 
     def test_output_is_rgba_so_nodata_is_transparent(
         self, geotiff_bytes, tmp_path
@@ -147,9 +149,8 @@ class TestRenderPng:
         src = tmp_path / "scene.tif"
         bytes_to_cog(geotiff_bytes(band_names=("B8", "B4")), src,
                      band_names=["B8", "B4"])
-        out = render.render_png(
-            src, render.LAYERS[("s2", "ndvi")], tmp_path / "out.png"
-        )
+        out = tmp_path / "out.png"
+        render.render_png(src, render.LAYERS[("s2", "ndvi")], out)
         assert Image.open(out).mode == "RGBA"
 
     def test_landsat_ndvi_applies_the_offset(self, geotiff_bytes, tmp_path):
@@ -170,14 +171,18 @@ class TestRenderPng:
             band_names=["SR_B5", "SR_B4", "B8", "B4"],
         )
 
-        calibrated = render.render_png(
-            src, render.LAYERS[("l9", "ndvi")], tmp_path / "cal.png"
-        ).read_bytes()
-        uncalibrated = render.render_png(
-            src, render.LAYERS[("s2", "ndvi")], tmp_path / "raw.png"
-        ).read_bytes()
+        cal_png, raw_png = tmp_path / "cal.png", tmp_path / "raw.png"
+        cal_stats = render.render_png(
+            src, render.LAYERS[("l9", "ndvi")], cal_png
+        )
+        raw_stats = render.render_png(
+            src, render.LAYERS[("s2", "ndvi")], raw_png
+        )
 
-        assert calibrated != uncalibrated
+        # The rendered ranges differ, which is the offset showing up in the
+        # numbers rather than only in the pixels.
+        assert cal_stats["display_min"] != raw_stats["display_min"]
+        assert cal_png.read_bytes() != raw_png.read_bytes()
 
     def test_bands_are_looked_up_by_name_not_position(
         self, geotiff_bytes, tmp_path
@@ -243,12 +248,16 @@ class TestRenderCache:
         src = self._cog(geotiff_bytes, tmp_path)
         layer = render.LAYERS[("s2", "ndvi")]
 
-        first = render.cached_or_render(src, layer)
+        first, first_stats = render.cached_or_render(src, layer)
         stamp = first.stat().st_mtime_ns
-        second = render.cached_or_render(src, layer)
+        second, second_stats = render.cached_or_render(src, layer)
 
         assert second == first
         assert second.stat().st_mtime_ns == stamp
+        # The legend must survive a cache HIT. Before the sidecar, stats came
+        # only from a fresh render, so the ramp went unlabelled from the
+        # second view onwards.
+        assert second_stats == first_stats
 
     def test_a_newer_cog_invalidates_the_cache(self, geotiff_bytes, tmp_path):
         """fetch_scenes --overwrite must not leave the old pixels on screen
@@ -258,14 +267,14 @@ class TestRenderCache:
 
         src = self._cog(geotiff_bytes, tmp_path)
         layer = render.LAYERS[("s2", "ndvi")]
-        png = render.cached_or_render(src, layer)
+        png, _ = render.cached_or_render(src, layer)
         before = png.stat().st_mtime_ns
 
         time.sleep(0.01)
         future = time.time() + 10
         os.utime(src, (future, future))
 
-        again = render.cached_or_render(src, layer)
+        again, _ = render.cached_or_render(src, layer)
         assert again.stat().st_mtime_ns != before
 
     def test_cache_sits_beside_the_cog_one_per_layer(self, tmp_path):
@@ -274,6 +283,101 @@ class TestRenderCache:
         true = render.cache_path(cog_path, "truecolor")
         assert ndvi.parent == cog_path.parent
         assert ndvi != true
+
+
+class TestStretchAndStats:
+    """F10.3 CP4.1 — the ramp is stretched to the scene, and says so.
+
+    Absolute domains rendered every index as a flat wash: NDVI over arid
+    Marsabit occupies roughly 0.1-0.25 of a -1..1 ramp, so every pixel landed
+    in the same two adjacent colours on a layer whose entire pitch value is
+    that NDVI explains inter-site variance.
+
+    Percentile stretching makes the structure visible and makes the colours
+    RELATIVE to one scene. That is only defensible if the range travels with
+    the pixels, which is what these tests protect.
+    """
+
+    def _cog(self, geotiff_bytes, tmp_path, names=("B8", "B4")):
+        from satellite_integration.cog import bytes_to_cog
+
+        src = tmp_path / "scene.tif"
+        bytes_to_cog(geotiff_bytes(band_names=names), src, band_names=list(names))
+        return src
+
+    def test_index_layers_stretch_to_the_scene(self, geotiff_bytes, tmp_path):
+        src = self._cog(geotiff_bytes, tmp_path)
+        stats = render.render_png(
+            src, render.LAYERS[("s2", "ndvi")], tmp_path / "out.png"
+        )
+        assert stats["stretch"] == "percentile"
+        # A stretched range must be NARROWER than the absolute domain, or the
+        # stretch did nothing and the flat-wash bug is back.
+        assert stats["display_min"] > -1.0 or stats["display_max"] < 1.0
+        assert stats["display_min"] < stats["display_max"]
+
+    def test_stats_report_the_observed_data_range(self, geotiff_bytes, tmp_path):
+        stats = render.render_png(
+            self._cog(geotiff_bytes, tmp_path),
+            render.LAYERS[("s2", "ndvi")],
+            tmp_path / "out.png",
+        )
+        assert stats["data_min"] is not None
+        assert stats["data_max"] >= stats["data_min"]
+        assert stats["valid_px"] > 0
+
+    def test_stats_are_written_beside_the_png(self, geotiff_bytes, tmp_path):
+        import json as _json
+
+        out = tmp_path / "out.png"
+        stats = render.render_png(
+            self._cog(geotiff_bytes, tmp_path),
+            render.LAYERS[("s2", "ndvi")],
+            out,
+        )
+        sidecar = out.with_suffix(out.suffix + ".json")
+        assert sidecar.exists()
+        assert _json.loads(sidecar.read_text()) == stats
+
+    def test_a_corrupt_sidecar_forces_a_rerender(self, geotiff_bytes, tmp_path):
+        """Better to re-render than to serve pixels with no legend."""
+        src = self._cog(geotiff_bytes, tmp_path)
+        layer = render.LAYERS[("s2", "ndvi")]
+        png, _ = render.cached_or_render(src, layer)
+        png.with_suffix(png.suffix + ".json").write_text("{not json")
+
+        _again, stats = render.cached_or_render(src, layer)
+        assert stats["layer"] == "ndvi"
+
+    def test_truecolour_uses_one_shared_range(self, geotiff_bytes, tmp_path):
+        """Per-band stretching destroys the band balance.
+
+        Each band normalised to its own narrow range amplifies noise into
+        colour casts — over arid terrain it turned tan into saturated blue
+        and orange. One range across R/G/B is what makes it read as true
+        colour, and a single shared stretch reports ONE display range rather
+        than three.
+        """
+        src = self._cog(geotiff_bytes, tmp_path, names=("B4", "B3", "B2"))
+        stats = render.render_png(
+            src, render.LAYERS[("s2", "truecolor")], tmp_path / "rgb.png"
+        )
+        assert stats["kind"] == "rgb"
+        assert stats["display_min"] < stats["display_max"]
+
+    def test_outliers_cannot_drag_the_ramp_outside_the_domain(
+        self, geotiff_bytes, tmp_path
+    ):
+        """A division near zero can produce values outside an index's
+        definition; clamping happens before percentiles so one pixel cannot
+        pull the whole ramp with it."""
+        stats = render.render_png(
+            self._cog(geotiff_bytes, tmp_path),
+            render.LAYERS[("s2", "ndvi")],
+            tmp_path / "out.png",
+        )
+        assert -1.0 <= stats["display_min"] <= 1.0
+        assert -1.0 <= stats["display_max"] <= 1.0
 
 
 # ── the endpoint ────────────────────────────────────────────────────
@@ -384,4 +488,82 @@ class TestRenderEndpoint:
         """Tenant data behind auth must never land in a shared cache."""
         response = authed_client.get(_url(s2_scene_on_disk, "ndvi"))
         assert "private" in response["Cache-Control"]
+
+    def test_response_revalidates_rather_than_going_stale(
+        self, authed_client, s2_scene_on_disk
+    ):
+        """A long max-age hides its own bug.
+
+        With max-age=3600 the browser served an hour-old PNG without asking,
+        so a change to the render logic changed nothing on screen — and the
+        stale image looked like a rendering failure. no-cache keeps the bytes
+        and revalidates.
+        """
+        response = authed_client.get(_url(s2_scene_on_disk, "ndvi"))
+        assert "no-cache" in response["Cache-Control"]
+        assert "private" in response["Cache-Control"]
+        assert response["ETag"]
+
+    def test_unchanged_render_answers_304(
+        self, authed_client, s2_scene_on_disk
+    ):
+        first = authed_client.get(_url(s2_scene_on_disk, "ndvi"))
+        again = authed_client.get(
+            _url(s2_scene_on_disk, "ndvi"),
+            HTTP_IF_NONE_MATCH=first["ETag"],
+        )
+        assert again.status_code == 304
+
+    def test_etag_differs_per_layer(
+        self, authed_client, org, s2, make_scene, geotiff_bytes, settings,
+        tmp_path
+    ):
+        """One ETag across layers would serve NDVI pixels for an RGB request.
+
+        Needs its OWN scene: the shared s2_scene_on_disk fixture carries only
+        B8 and B4, so a true-colour request against it correctly 409s and has
+        no ETag to compare. (The first version of this test asked the
+        endpoint something impossible and read the failure as a bug.)
+        """
+        from satellite_integration.cog import absolute_cog_path, bytes_to_cog
+
+        settings.MEDIA_ROOT = tmp_path
+        _q, image = make_scene(org, s2, cog_path="knra/s2/multi.tif")
+        dest = absolute_cog_path(image.cog_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        names = ("B2", "B3", "B4", "B8")
+        bytes_to_cog(
+            geotiff_bytes(band_names=names), dest, band_names=list(names)
+        )
+
+        ndvi = authed_client.get(_url(image, "ndvi"))
+        rgb = authed_client.get(_url(image, "truecolor"))
+        assert ndvi.status_code == 200
+        assert rgb.status_code == 200
+        assert ndvi["ETag"] != rgb["ETag"]
+
+    def test_ramp_stats_ride_in_a_header(
+        self, authed_client, s2_scene_on_disk
+    ):
+        """The body is a PNG, so the legend's numbers travel in a header.
+
+        Without them the UI shows a stretched ramp with no range, which
+        implies absolute physical values it does not carry.
+        """
+        import json as _json
+
+        response = authed_client.get(_url(s2_scene_on_disk, "ndvi"))
+        stats = _json.loads(response["X-Ranger-Stats"])
+        assert stats["layer"] == "ndvi"
+        assert stats["stretch"] == "percentile"
+        assert stats["display_min"] < stats["display_max"]
+
+    def test_stats_header_is_exposed_to_the_browser(
+        self, authed_client, s2_scene_on_disk
+    ):
+        """Same-origin today via the Vite proxy; cross-origin in any split
+        deployment, where an unexposed custom header is hidden from JS and
+        the legend goes blank — a failure that only appears after deploy."""
+        response = authed_client.get(_url(s2_scene_on_disk, "ndvi"))
+        assert "X-Ranger-Stats" in response["Access-Control-Expose-Headers"]
 # ─── RANGER V3 END: render tests ───

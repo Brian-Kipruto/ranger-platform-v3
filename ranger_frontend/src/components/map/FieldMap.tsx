@@ -70,6 +70,20 @@ export interface FieldMapHandle {
   resize: () => void
 }
 
+export interface FieldMapRaster {
+  /** Identity of the CURRENT image+layer, e.g. "12:ndvi". Changing it swaps
+   *  the pixels via updateImage rather than remove/re-add — no flicker. */
+  id: string
+  /** Object URL from fetchLayerBlobUrl. NOT the raw endpoint path: MapLibre
+   *  fetches this itself, outside axios, so an /api/ URL would go
+   *  unauthenticated and 401 with the map silently blank. */
+  url: string
+  /** [west, south, east, north], EPSG:4326. Our COGs are already 4326
+   *  (F10.2 CP5), so corner-pinning is exact — no reprojection. */
+  bbox: [number, number, number, number]
+  opacity?: number
+}
+
 export interface FieldMapProps {
   /** Resolved accent hex (org theme_color). NEVER var(--accent) — see header. */
   accent: string
@@ -95,6 +109,24 @@ export interface FieldMapProps {
   headerSub?: string
   /** Extra header-right slot (e.g. DE's FILTERED TRACK label). */
   headerRight?: React.ReactNode
+  /**
+   * Georeferenced raster overlay, pinned to its bbox corners (F10.3 CP4).
+   * Null removes it. Always drawn BENEATH the track layer — ground truth
+   * renders over satellite imagery, never under it.
+   */
+  raster?: FieldMapRaster | null
+  /**
+   * Fit the viewport to the raster's bbox when its `id` changes (F10.3 CP4).
+   *
+   * Needed because the map's default center is Nairobi and a scene may be
+   * anywhere — Forole is ~1,000 km north, so without this the overlay loads
+   * correctly and is simply not on screen, which looks exactly like a
+   * rendering failure and is not one.
+   *
+   * Keyed on `id`, not on the object, so an opacity change does not yank the
+   * viewport back while the user is panning.
+   */
+  fitToRaster?: boolean
   /** Map viewport height (the container needs an explicit height). */
   height?: string | number
   className?: string
@@ -102,6 +134,24 @@ export interface FieldMapProps {
 
 const TRACK_SOURCE = "track"
 const TRACK_LAYER = "track-points"
+const RASTER_SOURCE = "eo-raster"
+const RASTER_LAYER = "eo-raster-layer"
+
+/** ImageSource wants four corners CLOCKWISE FROM TOP-LEFT, not a bbox.
+ *  Getting this order wrong mirrors or rotates the image over the map,
+ *  which reads as a georeferencing bug in the data rather than in this
+ *  five-line function. */
+function cornersFromBbox(
+  bbox: [number, number, number, number]
+): [[number, number], [number, number], [number, number], [number, number]] {
+  const [w, s, e, n] = bbox
+  return [
+    [w, n],
+    [e, n],
+    [e, s],
+    [w, s],
+  ]
+}
 
 // Blip status → semantic color (hex literals matching index.css tokens;
 // JS-created marker DOM can't read CSS vars). live=ok, mqtt=warn, offline=alert,
@@ -234,6 +284,8 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
     headerTitle,
     headerSub,
     headerRight,
+    raster = null,
+    fitToRaster = false,
     height = "68vh",
     className,
   },
@@ -255,6 +307,11 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
   // Keep the latest track in a ref so the load/styledata handlers can apply it
   // even if a fetch resolved before the map (or new style) was ready.
   const pendingTrack = useRef<MapFeatureCollection | null>(track ?? null)
+  // Same reason as pendingTrack: a blob may resolve before the map (or a new
+  // style) is ready, and styledata re-installs from whatever is current.
+  const pendingRaster = useRef<FieldMapRaster | null>(raster)
+  /** Last raster id the viewport was fitted to, so a repeat fit is skipped. */
+  const fittedRasterId = useRef<string | null>(null)
 
   /**
    * installLayers — the SINGLE place every source/layer is (re)added. Called on
@@ -263,6 +320,34 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
    */
   const installLayers = useCallback(
     (m: maplibregl.Map) => {
+      // ── raster FIRST, so it exists to insert the track above ──
+      const r = pendingRaster.current
+      if (r) {
+        if (!m.getSource(RASTER_SOURCE)) {
+          m.addSource(RASTER_SOURCE, {
+            type: "image",
+            url: r.url,
+            coordinates: cornersFromBbox(r.bbox),
+          })
+        }
+        if (!m.getLayer(RASTER_LAYER)) {
+          m.addLayer({
+            id: RASTER_LAYER,
+            type: "raster",
+            source: RASTER_SOURCE,
+            paint: {
+              "raster-opacity": r.opacity ?? 1,
+              // Nearest, not the default linear: these scenes are 38x41 and
+              // 112x119 px. Smoothing them invents detail the sensor never
+              // resolved, which on a screen arguing about resolution is the
+              // wrong kind of pretty.
+              "raster-resampling": "nearest",
+              "raster-fade-duration": 0,
+            },
+          })
+        }
+      }
+
       if (!m.getSource(TRACK_SOURCE)) {
         m.addSource(TRACK_SOURCE, {
           type: "geojson",
@@ -285,6 +370,14 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
         })
       }
 
+      // Sensor points ALWAYS draw over imagery. If the raster were added
+      // after the track (a styledata re-install with a newly-set raster, say)
+      // it would cover every ground measurement on the screen whose whole
+      // argument is that ground measurements validate the imagery.
+      if (m.getLayer(RASTER_LAYER) && m.getLayer(TRACK_LAYER)) {
+        m.moveLayer(RASTER_LAYER, TRACK_LAYER)
+      }
+
       // The guards above prevent re-ADDING a layer that already exists. They
       // do NOT update one whose paint props changed since it was added —
       // which happens on every accent change, and from CP4 on every raster
@@ -292,6 +385,9 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
       // to mean "correct".
       if (m.getLayer(TRACK_LAYER)) {
         m.setPaintProperty(TRACK_LAYER, "circle-color", trackColorExpression(accent))
+      }
+      if (m.getLayer(RASTER_LAYER) && r) {
+        m.setPaintProperty(RASTER_LAYER, "raster-opacity", r.opacity ?? 1)
       }
     },
     [accent]
@@ -362,6 +458,61 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
       m.fitBounds(b, { padding: 40, maxZoom: 16, duration: 600 })
     }
   }, [track, fitToTrack, mapReady])
+
+  // ── raster changes: swap pixels, move, or remove ──
+  useEffect(() => {
+    pendingRaster.current = raster
+    const m = map.current
+    if (!m || !mapReady) return
+
+    const source = m.getSource(RASTER_SOURCE) as
+      | maplibregl.ImageSource
+      | undefined
+
+    if (!raster) {
+      // Layer before source — MapLibre throws if a source still has a layer.
+      if (m.getLayer(RASTER_LAYER)) m.removeLayer(RASTER_LAYER)
+      if (m.getSource(RASTER_SOURCE)) m.removeSource(RASTER_SOURCE)
+      fittedRasterId.current = null
+      return
+    }
+
+    if (!source) {
+      // Nothing installed yet — installLayers reads pendingRaster and does it.
+      installLayersRef.current(m)
+      return
+    }
+
+    // updateImage rather than remove/re-add: no flicker between layer
+    // toggles, and the layer keeps its position under the track.
+    source.updateImage({
+      url: raster.url,
+      coordinates: cornersFromBbox(raster.bbox),
+    })
+    if (m.getLayer(RASTER_LAYER)) {
+      m.setPaintProperty(RASTER_LAYER, "raster-opacity", raster.opacity ?? 1)
+      if (m.getLayer(TRACK_LAYER)) m.moveLayer(RASTER_LAYER, TRACK_LAYER)
+    }
+  }, [raster, mapReady])
+
+  // ── fit the viewport to the raster, once per image+layer ──
+  useEffect(() => {
+    const m = map.current
+    if (!m || !mapReady || !fitToRaster || !raster) return
+    if (fittedRasterId.current === raster.id) return
+    fittedRasterId.current = raster.id
+    const [w, s2, e, n] = raster.bbox
+    m.fitBounds(
+      [
+        [w, s2],
+        [e, n],
+      ],
+      // Generous padding: a 300 m site fitted edge-to-edge gives no
+      // surrounding context, and the context is what makes the footprint
+      // legible as a clip rather than as the whole world.
+      { padding: 60, maxZoom: 17, duration: 700 }
+    )
+  }, [raster, fitToRaster, mapReady])
 
   // ── accent change: repaint the existing layer ──
   // installLayers only runs on load/styledata, neither of which fires when

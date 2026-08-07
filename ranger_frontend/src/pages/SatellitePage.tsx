@@ -20,16 +20,32 @@
  *   - render a REGIONAL product as a per-site measurement. `scale` rides on
  *     every image for exactly this reason.
  */
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Panel } from "@/components/console/Panel"
 import { MonoLabel } from "@/components/console/MonoLabel"
 import { MetricTile } from "@/components/console/MetricTile"
-import { getDatasets, getImages, getQueries, type Page } from "@/api/satellite"
-import { layersFor } from "@/types/satellite.types"
+import { FieldMap, type FieldMapRaster } from "@/components/map/FieldMap"
+import type { BasemapMode } from "@/components/map/basemaps"
+import { useAuthStore } from "@/stores/authStore"
+import {
+  fetchLayerBlobUrl,
+  getDatasets,
+  getImages,
+  getQueries,
+  type Page,
+} from "@/api/satellite"
+import {
+  LAYER_META,
+  layerCaption,
+  layersFor,
+  paletteGradient,
+} from "@/types/satellite.types"
 import type {
   SatelliteDataset,
   SatelliteImage,
+  SatelliteLayer,
   SatelliteQuery,
+  RampStats,
 } from "@/types/satellite.types"
 
 const EM_DASH = "—"
@@ -97,6 +113,33 @@ export default function SatellitePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const [activeImageId, setActiveImageId] = useState<number | null>(null)
+  const [activeLayer, setActiveLayer] = useState<SatelliteLayer>("truecolor")
+  const [opacity, setOpacity] = useState(0.85)
+  const [raster, setRaster] = useState<FieldMapRaster | null>(null)
+  const [rasterError, setRasterError] = useState<string | null>(null)
+  const [rampStats, setRampStats] = useState<RampStats | null>(null)
+  const [rasterLoading, setRasterLoading] = useState(false)
+  // Controlled, with a handler — passing `basemap` without one would freeze
+  // the SAT/VECTOR/TOPO control. Defaults to "sat": an EO overlay against a
+  // vector basemap looks like a graphic; against imagery it looks like the
+  // measurement it is.
+  const [basemap, setBasemap] = useState<BasemapMode>("sat")
+
+  const user = useAuthStore((s) => s.user)
+  const accent = user?.organization?.theme_color ?? "#0ea5e9"
+
+  /**
+   * The object URL currently held by MapLibre.
+   *
+   * Object URLs live until revoked. Toggling four layers over two scenes a
+   * few dozen times in a demo leaks every PNG ever drawn, and the leak is
+   * invisible — nothing errors, memory just climbs. Revoke the PREVIOUS one
+   * only after the new raster is installed, never before: revoking a URL
+   * MapLibre is still reading blanks the map.
+   */
+  const heldRevoke = useRef<(() => void) | null>(null)
+
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -118,6 +161,95 @@ export default function SatellitePage() {
       cancelled = true
     }
   }, [])
+
+  const activeImage =
+    images.items.find((i) => i.id === activeImageId) ?? null
+
+  // Default to the first scene that actually has pixels.
+  useEffect(() => {
+    if (activeImageId !== null) return
+    const first = images.items.find((i) => i.has_cog)
+    if (first) setActiveImageId(first.id)
+  }, [images, activeImageId])
+
+  // Keep the layer valid for the selected dataset. Switching from an l9
+  // scene on THERMAL to an s2 scene must not leave THERMAL selected — the
+  // backend would 404 that pair, correctly, and the user would see an error
+  // for a choice they did not make.
+  useEffect(() => {
+    if (!activeImage) return
+    const available = layersFor(activeImage.dataset_code)
+    if (available.length && !available.includes(activeLayer)) {
+      setActiveLayer(available[0])
+    }
+  }, [activeImage, activeLayer])
+
+  useEffect(() => {
+    if (!activeImage || !activeImage.has_cog || !activeImage.bbox) {
+      setRaster(null)
+      return
+    }
+    let cancelled = false
+    setRasterLoading(true)
+    setRasterError(null)
+
+    fetchLayerBlobUrl(activeImage.id, activeLayer)
+      .then((rendered) => {
+        if (cancelled) {
+          rendered.revoke()
+          return
+        }
+        const previous = heldRevoke.current
+        heldRevoke.current = rendered.revoke
+        setRampStats(rendered.stats)
+        setRaster({
+          id: rendered.id,
+          url: rendered.url,
+          bbox: activeImage.bbox as [number, number, number, number],
+          opacity,
+        })
+        // Only now is the old URL safe to release.
+        previous?.()
+      })
+      .catch((err) => {
+        if (cancelled) return
+        const status = err?.response?.status
+        setRaster(null)
+        setRampStats(null)
+        setRasterError(
+          status === 409
+            ? "This scene cannot render that layer — it lacks a band the layer needs."
+            : status === 404
+              ? "This product has no recipe for that layer."
+              : "Could not load the rendered layer."
+        )
+      })
+      .finally(() => {
+        if (!cancelled) setRasterLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+    // `opacity` deliberately absent: it is applied below without a refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeImage, activeLayer])
+
+  // Opacity is a paint change, not a new image. Refetching for it would
+  // re-request a PNG we already hold.
+  useEffect(() => {
+    setRaster((r) => (r ? { ...r, opacity } : r))
+  }, [opacity])
+
+  // Release the last URL on unmount.
+  useEffect(() => {
+    return () => {
+      heldRevoke.current?.()
+      heldRevoke.current = null
+    }
+  }, [])
+
+  const selectImage = useCallback((id: number) => setActiveImageId(id), [])
 
   const imageList = images.items
   const queryList = queries.items
@@ -224,45 +356,175 @@ export default function SatellitePage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.65fr_1fr] gap-3">
         {/* ── CP4 puts the EO imagery panel here. ── */}
-        <Panel title="EO IMAGERY" right={<MonoLabel size="xs">CP4</MonoLabel>}>
-          <div className="p-[14px] font-mono text-[11px] leading-[1.7] text-fg-dim">
-            The raster overlay lands in CP4. The render endpoint and its layer
-            registry are already live — each scene below lists the layers its
-            dataset can actually render, which is what the toggle strip will
-            offer.
-            <div className="mt-3 space-y-2">
-              {imageList.map((image) => (
-                <div
-                  key={image.id}
-                  className="border border-border-strong rounded-md p-2.5"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-fg-soft">{image.dataset_name}</span>
-                    <span className="text-[9px] tracking-[0.08em] px-1.5 py-0.5 rounded border border-border-strong">
-                      {image.scale}
-                    </span>
+        <Panel
+          title="EO IMAGERY"
+          right={
+            <MonoLabel size="xs" tone={rasterError ? "alert" : "dim"}>
+              {rasterLoading
+                ? "RENDERING…"
+                : rasterError
+                  ? "RENDER FAILED"
+                  : activeImage
+                    ? `${activeImage.dataset_code.toUpperCase()} · ${activeImage.resolution_m} M`
+                    : "NO SCENE"}
+            </MonoLabel>
+          }
+          bodyClassName="p-0"
+        >
+          <div className="p-[14px] pb-0 flex flex-wrap items-center gap-2">
+            {/* Scene picker — only scenes with pixels are selectable. */}
+            {imageList.map((image) => (
+              <button
+                key={image.id}
+                onClick={() => selectImage(image.id)}
+                disabled={!image.has_cog}
+                className="font-mono text-[9px] tracking-[0.08em] px-2 py-1 rounded border transition-colors disabled:opacity-40"
+                style={{
+                  color: image.id === activeImageId ? accent : undefined,
+                  borderColor:
+                    image.id === activeImageId ? `${accent}88` : undefined,
+                  background:
+                    image.id === activeImageId ? `${accent}18` : undefined,
+                }}
+                title={`${image.dataset_name} · ${new Date(
+                  image.acquisition_date
+                ).toLocaleDateString()}`}
+              >
+                {image.dataset_code.toUpperCase()}
+              </button>
+            ))}
+
+            <span className="w-px h-4 bg-border-strong mx-1" />
+
+            {/* Layer toggles — ONLY layers this dataset can render.
+                Offering a toggle the backend would 404 makes the user
+                interpret an error for a choice they did not make. */}
+            {activeImage
+              ? layersFor(activeImage.dataset_code).map((layer) => (
+                  <button
+                    key={layer}
+                    onClick={() => setActiveLayer(layer)}
+                    className="font-mono text-[9px] tracking-[0.08em] px-2 py-1 rounded border transition-colors"
+                    style={{
+                      color: layer === activeLayer ? accent : undefined,
+                      borderColor:
+                        layer === activeLayer ? `${accent}88` : undefined,
+                      background:
+                        layer === activeLayer ? `${accent}18` : undefined,
+                    }}
+                  >
+                    {LAYER_META[layer].short}
+                  </button>
+                ))
+              : null}
+
+            <label className="ml-auto flex items-center gap-2 font-mono text-[9px] tracking-[0.08em] text-fg-dim">
+              OPACITY
+              <input
+                type="range"
+                min={0.2}
+                max={1}
+                step={0.05}
+                value={opacity}
+                onChange={(e) => setOpacity(Number(e.target.value))}
+                className="w-24 accent-[var(--accent)]"
+              />
+            </label>
+          </div>
+
+          <div className="p-[14px]">
+            <FieldMap
+              accent={accent}
+              raster={raster}
+              fitToRaster
+              showOverlays={false}
+              expandable
+              height={420}
+              basemap={basemap}
+              onBasemapChange={setBasemap}
+            />
+
+            {/* The caption is the point. It states what the number IS and
+                what it is NOT, and it varies BY DATASET — NDVI over S2 is
+                correct from raw values because the calibration cancels;
+                over L9 the offset does not cancel and the backend applies
+                calibration first. Same index, same name, different
+                provenance, and the viewer is told which. */}
+            <div className="mt-2.5 font-mono text-[9.5px] leading-[1.7] text-fg-dim">
+              {activeImage ? (
+                <>
+                  <span className="text-fg-soft">
+                    {LAYER_META[activeLayer].label.toUpperCase()}
+                  </span>
+                  {" — "}
+                  {layerCaption(activeImage.dataset_code, activeLayer)}
+                  <div className="mt-1">
+                    {activeImage.dataset_name} ·{" "}
+                    {new Date(
+                      activeImage.acquisition_date
+                    ).toLocaleDateString()}{" "}
+                    · {activeImage.resolution_m} m · {activeImage.scale}
+                    {activeImage.cloud_cover_pct !== null
+                      ? ` · ${activeImage.cloud_cover_pct.toFixed(1)}% cloud`
+                      : ""}
                   </div>
-                  <div className="mt-1 text-[10px]">
-                    {new Date(image.acquisition_date).toLocaleDateString()} ·{" "}
-                    {image.resolution_m} m ·{" "}
-                    {image.has_cog ? "COG on disk" : "no COG"}
-                  </div>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {layersFor(image.dataset_code).map((layer) => (
-                      <span
-                        key={layer}
-                        className="font-mono text-[9px] tracking-[0.08em] px-1.5 py-0.5 rounded border border-border-strong text-fg-soft"
-                      >
-                        {layer.toUpperCase()}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {!loading && imageList.length === 0 ? (
-                <div>No scenes retrieved yet. Run fetch_scenes.</div>
-              ) : null}
+                </>
+              ) : (
+                "No scene selected. Run fetch_scenes to retrieve imagery."
+              )}
             </div>
+
+            {/* ── ramp legend ──
+                Only shown for stretched index/scalar layers, and it always
+                carries the RANGE. A percentile-stretched ramp's colours are
+                relative to this scene; without these numbers the image
+                implies absolute physical values it does not have, which is
+                the whole reason the stats travel with the pixels. */}
+            {rampStats && rampStats.kind !== "rgb" ? (
+              <div className="mt-2.5">
+                <div
+                  className="h-[8px] rounded-sm border border-border-strong"
+                  style={{ background: paletteGradient(rampStats.palette) }}
+                />
+                <div className="mt-1 flex items-center justify-between font-mono text-[9px] tracking-[0.06em] text-fg-dim">
+                  <span>
+                    {rampStats.display_min.toFixed(2)}
+                    {rampStats.units}
+                  </span>
+                  <span className="text-center">
+                    {rampStats.stretch === "percentile"
+                      ? `STRETCHED TO THIS SCENE · p${rampStats.stretch_pct[0]}–p${rampStats.stretch_pct[1]}`
+                      : "ABSOLUTE SCALE"}
+                  </span>
+                  <span>
+                    {rampStats.display_max.toFixed(2)}
+                    {rampStats.units}
+                  </span>
+                </div>
+                {rampStats.data_min !== null && rampStats.data_max !== null ? (
+                  <div className="mt-0.5 font-mono text-[9px] leading-[1.6] text-fg-dim">
+                    Full observed range {rampStats.data_min.toFixed(3)} to{" "}
+                    {rampStats.data_max.toFixed(3)}
+                    {rampStats.units} over{" "}
+                    {rampStats.valid_px.toLocaleString()} valid pixels · colour
+                    is relative to this scene, not comparable across dates
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {rasterError ? (
+              <div
+                className="mt-2 px-3 py-2 rounded-md border font-mono text-[10px] leading-[1.6]"
+                style={{
+                  color: "#f5a623",
+                  borderColor: "#f5a62355",
+                  background: "#f5a62312",
+                }}
+              >
+                ⚠ {rasterError}
+              </div>
+            ) : null}
           </div>
         </Panel>
 
