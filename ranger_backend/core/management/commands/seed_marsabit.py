@@ -167,6 +167,11 @@ class Command(BaseCommand):
         parser.add_argument("--clear", action="store_true",
                             help="Delete existing KNRA-org SensorLogs first. "
                                  "Only touches the knra tenant.")
+        parser.add_argument("--append", action="store_true",
+                            help="Seed ON TOP of existing KNRA rows. Almost "
+                                 "always wrong — see the refusal message. "
+                                 "Exists so the guard can be overridden "
+                                 "deliberately rather than worked around.")
         parser.add_argument("--site", type=str, default=None,
                             help="Seed a single site by code, e.g. 'forole'.")
         parser.add_argument("--password", type=str, default=DEMO_PASSWORD,
@@ -228,6 +233,39 @@ class Command(BaseCommand):
             robots[spec["robot_id_str"]] = robot
 
         primary = robots["KNRA-PGIS-2-1"]
+
+        # ─── RANGER V3 START: double-seed guard (F10.3) ───
+        # Orgs, robots and missions are get_or_create; SensorLogs are an
+        # unconditional bulk_create. So a second run without --clear does not
+        # re-seed, it DOUBLES: 12,081 becomes 24,162, then 36,243.
+        #
+        # This has already happened once. It is invisible in every check that
+        # would normally catch a data bug — each site's mean, SD, min and max
+        # stay exactly on the published values, because duplicating a
+        # distribution does not move its moments. Only the count changes, and
+        # nothing on screen asserts what the count should be.
+        #
+        # So: refuse, and say what to do instead. Refusing costs one retyped
+        # command; not refusing costs a console that shows twice the readings
+        # the published report contains, in front of people who have read it.
+        existing = SensorLog.objects.filter(robot__organization=org).count()
+        if existing and not (options["clear"] or options["append"]):
+            raise CommandError(
+                f"{existing} SensorLog row(s) already exist for org "
+                f"'{org.slug}'.\n"
+                f"Seeding again would ADD to them, not replace them — the "
+                f"per-site statistics would still match the report while the "
+                f"row count silently doubled.\n"
+                f"  --clear   delete the existing KNRA rows and reseed "
+                f"(what you almost certainly want)\n"
+                f"  --append  seed on top of them anyway"
+            )
+        if options["append"] and existing:
+            self.stdout.write(self.style.WARNING(
+                f"  --append: adding to {existing} existing row(s). The total "
+                f"will NOT match the published n."
+            ))
+        # ─── RANGER V3 END: double-seed guard (F10.3) ───
 
         if options["clear"]:
             deleted, _ = SensorLog.objects.filter(

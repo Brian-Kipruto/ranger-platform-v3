@@ -18,6 +18,7 @@ import math
 
 import pytest
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from django.contrib.auth import get_user_model
 
@@ -267,4 +268,79 @@ class TestTenantHasALogin:
                      "--clear", verbosity=0)
         user.refresh_from_db()
         assert user.organization_id == seeded.id
+@pytest.mark.django_db
+class TestDoubleSeedGuard:
+    """F10.3. A second run without --clear used to DOUBLE the dataset.
+
+    This is the failure mode nothing else catches. Duplicating a distribution
+    does not move its mean, SD, min or max — every statistical assertion in
+    this module keeps passing at 24,162 rows. Only the count changes, and no
+    screen asserts what the count should be. It reached production once.
+    """
+
+    def test_second_run_without_clear_is_refused(self, seeded):
+        with pytest.raises(CommandError) as exc:
+            call_command("seed_marsabit", "--scale", str(SCALE), "--seed", "42",
+                         verbosity=0)
+        assert "already exist" in str(exc.value)
+
+    def test_refusal_names_the_flags(self, seeded):
+        """An error that does not say what to do next gets worked around."""
+        with pytest.raises(CommandError) as exc:
+            call_command("seed_marsabit", "--scale", str(SCALE), verbosity=0)
+        message = str(exc.value)
+        assert "--clear" in message
+        assert "--append" in message
+
+    def test_refusal_leaves_the_row_count_untouched(self, seeded):
+        before = SensorLog.objects.filter(robot__organization=seeded).count()
+        with pytest.raises(CommandError):
+            call_command("seed_marsabit", "--scale", str(SCALE), verbosity=0)
+        assert SensorLog.objects.filter(
+            robot__organization=seeded
+        ).count() == before
+
+    def test_clear_still_reseeds_to_the_same_count(self, seeded):
+        before = SensorLog.objects.filter(robot__organization=seeded).count()
+        call_command("seed_marsabit", "--scale", str(SCALE), "--seed", "42",
+                     "--clear", verbosity=0)
+        assert SensorLog.objects.filter(
+            robot__organization=seeded
+        ).count() == before
+
+    def test_append_is_an_explicit_escape_hatch(self, seeded):
+        """--append still doubles. That is its job; the point is that you
+        cannot get there by accident."""
+        before = SensorLog.objects.filter(robot__organization=seeded).count()
+        call_command("seed_marsabit", "--scale", str(SCALE), "--seed", "42",
+                     "--append", verbosity=0)
+        assert SensorLog.objects.filter(
+            robot__organization=seeded
+        ).count() == before * 2
+
+    def test_first_run_on_an_empty_database_is_not_blocked(self, db):
+        call_command("seed_marsabit", "--scale", str(SCALE), "--seed", "42",
+                     verbosity=0)
+        org = Organization.objects.get(slug="knra")
+        assert SensorLog.objects.filter(robot__organization=org).exists()
+
+    def test_the_statistics_alone_would_not_have_caught_this(self, seeded):
+        """Why the guard exists rather than an assertion on the mean.
+
+        Seed on top of an existing set and every published statistic still
+        matches — a doubled distribution has the same mean and SD. This test
+        asserts the blind spot directly, so nobody later replaces the guard
+        with a statistical check and believes it equivalent.
+        """
+        doses_before = _doses("forole")
+        mean_before = sum(doses_before) / len(doses_before)
+
+        call_command("seed_marsabit", "--scale", str(SCALE), "--seed", "42",
+                     "--append", verbosity=0)
+
+        doses_after = _doses("forole")
+        mean_after = sum(doses_after) / len(doses_after)
+
+        assert len(doses_after) == len(doses_before) * 2
+        assert abs(mean_after - mean_before) < 1.0
 # ─── RANGER V3 END: seed_marsabit tests ───
