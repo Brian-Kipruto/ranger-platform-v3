@@ -203,7 +203,26 @@ export async function fetchLayerBlobUrl(
 ): Promise<RenderedLayer> {
   const response = await api.get<Blob>(
     `/satellite/images/${imageId}/render/`,
-    { params: { layer }, responseType: "blob" }
+    {
+      params: { layer },
+      responseType: "blob",
+      // Force revalidation on OUR request rather than trusting whatever the
+      // browser stored earlier.
+      //
+      // This endpoint once answered with `max-age=3600`. Entries cached under
+      // that rule stay fresh for an hour, so the browser serves them without
+      // contacting the server at all — and a JS-initiated XHR is NOT covered
+      // by Ctrl+Shift+R, which only forces revalidation for the document and
+      // the subresources the reload itself fetches. The result was a render
+      // pipeline that could be rewritten, redeployed and have its cache files
+      // deleted on disk while the screen kept showing the old pixels, with no
+      // request reaching Django to explain it.
+      //
+      // The server now sends `no-cache` + ETag, so this is belt-and-braces —
+      // but it is the belt that makes the client independent of whatever a
+      // given browser happens to be holding.
+      headers: { "Cache-Control": "no-cache" },
+    }
   )
   const url = URL.createObjectURL(response.data)
 
