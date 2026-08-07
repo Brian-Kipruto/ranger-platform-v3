@@ -19,10 +19,15 @@ import math
 import pytest
 from django.core.management import call_command
 
+from django.contrib.auth import get_user_model
+
+from core.management.commands.seed_marsabit import DEMO_GROUP, DEMO_USER
 from core.marsabit import SITES, SITES_BY_CODE
 from core.models import RadiationLog, Robot, SensorLog
 from missions.models import Mission
 from accounts.models import Organization
+
+User = get_user_model()
 
 SCALE = 0.05
 ANOMALY_THRESHOLD = 300.0
@@ -182,4 +187,84 @@ class TestDistributionFidelity:
             assert reading.radiation_value == pytest.approx(
                 reading.dose_rate_usvh * CPM_PER_USVH, rel=1e-3
             )
+@pytest.mark.django_db
+class TestTenantHasALogin:
+    """F10.3 CP0.2.
+
+    seed_marsabit used to create an org, two instruments, seven missions and
+    12,081 rows that nobody could log in and look at. The account was made by
+    hand in admin on 2026-08-06, which does not survive `--create-db` or a
+    database rebuild — and there is at least one of each before the pitch.
+
+    A seeded tenant nobody can enter is not a seeded tenant.
+    """
+
+    def test_creates_a_user_for_the_knra_org(self, seeded):
+        user = User.objects.get(username=DEMO_USER)
+        assert user.organization_id == seeded.id
+
+    def test_user_is_in_the_operator_group(self, seeded):
+        user = User.objects.get(username=DEMO_USER)
+        assert user.groups.filter(name=DEMO_GROUP).exists()
+
+    def test_default_password_authenticates(self, seeded):
+        from django.contrib.auth import authenticate
+        from accounts.management.commands.seed_demo import DEMO_PASSWORD
+
+        assert authenticate(username=DEMO_USER, password=DEMO_PASSWORD) is not None
+
+    def test_password_flag_is_honoured(self, db):
+        from django.contrib.auth import authenticate
+
+        call_command("seed_marsabit", "--scale", str(SCALE), "--seed", "42",
+                     "--password", "TestPassword123!", verbosity=0)
+        assert authenticate(
+            username=DEMO_USER, password="TestPassword123!"
+        ) is not None
+
+    def test_reseeding_does_not_duplicate_the_user(self, seeded):
+        call_command("seed_marsabit", "--scale", str(SCALE), "--seed", "42",
+                     "--clear", verbosity=0)
+        assert User.objects.filter(username=DEMO_USER).count() == 1
+
+    def test_existing_user_password_is_untouched_by_default(self, seeded):
+        """Follows seed_demo: an existing account may be a real one."""
+        from django.contrib.auth import authenticate
+
+        user = User.objects.get(username=DEMO_USER)
+        user.set_password("SomethingAnOperatorChose!")
+        user.save(update_fields=["password"])
+
+        call_command("seed_marsabit", "--scale", str(SCALE), "--seed", "42",
+                     "--clear", verbosity=0)
+        assert authenticate(
+            username=DEMO_USER, password="SomethingAnOperatorChose!"
+        ) is not None
+
+    def test_reset_password_flag_overrides_that(self, seeded):
+        from django.contrib.auth import authenticate
+
+        user = User.objects.get(username=DEMO_USER)
+        user.set_password("Forgotten!")
+        user.save(update_fields=["password"])
+
+        call_command("seed_marsabit", "--scale", str(SCALE), "--seed", "42",
+                     "--clear", "--reset-password",
+                     "--password", "Recovered123!", verbosity=0)
+        assert authenticate(
+            username=DEMO_USER, password="Recovered123!"
+        ) is not None
+
+    def test_user_org_is_repaired_if_wrong(self, seeded):
+        """A user in the right group but the WRONG org sees an empty console
+        while looking perfectly configured — the worst kind of broken."""
+        other = Organization.objects.create(slug="wrong-org", name="Wrong")
+        user = User.objects.get(username=DEMO_USER)
+        user.organization = other
+        user.save(update_fields=["organization"])
+
+        call_command("seed_marsabit", "--scale", str(SCALE), "--seed", "42",
+                     "--clear", verbosity=0)
+        user.refresh_from_db()
+        assert user.organization_id == seeded.id
 # ─── RANGER V3 END: seed_marsabit tests ───

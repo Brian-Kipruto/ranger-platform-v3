@@ -11,6 +11,8 @@ Creates, for the KNRA tenant:
   * Missions      one per site, area_of_interest = the site polygon
                   (first real use of the field F10.1 added)
   * SensorLogs    ~12,081 points across 7 sites, ALL labelled MODELLED
+  * User          one Operator-group login scoped to the knra org, so the
+                  tenant can actually be viewed after a database rebuild
 
 Honesty contract
 ----------------
@@ -38,9 +40,12 @@ import math
 import random
 from datetime import datetime, time, timedelta, timezone as dt_timezone
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from accounts.management.commands.seed_demo import DEMO_PASSWORD
 from accounts.models import Organization
 from core.geo import point_from_latlon, polygon_from_bbox
 from core.marsabit import (
@@ -59,6 +64,19 @@ ANOMALY_THRESHOLD = 300.0
 
 ORG_SLUG = "knra"
 ORG_NAME = "Kenya Nuclear Regulatory Authority"
+
+User = get_user_model()
+
+# The tenant login. Username IS the email, matching seed_demo's deliberate
+# convention: the Field Console login labels the field "Operator ID" and
+# shows an email, and simplejwt authenticates on `username`. Making them
+# identical means the thing displayed is the thing you type.
+#
+# NOTE: the hand-made account from 2026-08-06 was `knra.demo`. That name is
+# NOT reused — converging on one convention is the point, since duplicate
+# demo users under two naming schemes is already an open carry-forward.
+DEMO_USER = "operator@knra.go.ke"
+DEMO_GROUP = "Operator"
 
 INSTRUMENTS = [
     {
@@ -151,6 +169,15 @@ class Command(BaseCommand):
                                  "Only touches the knra tenant.")
         parser.add_argument("--site", type=str, default=None,
                             help="Seed a single site by code, e.g. 'forole'.")
+        parser.add_argument("--password", type=str, default=DEMO_PASSWORD,
+                            help="Password for the seeded KNRA demo login. "
+                                 "Defaults to the shared dev password from "
+                                 "seed_demo. Dev-only; never a secret.")
+        parser.add_argument("--reset-password", action="store_true",
+                            help="Reset the demo user's password if the "
+                                 "account already exists. Off by default, "
+                                 "following seed_demo: an existing account "
+                                 "may be one an operator created by hand.")
 
     @transaction.atomic
     def handle(self, *args, **options):
@@ -166,6 +193,16 @@ class Command(BaseCommand):
         org, _ = Organization.objects.get_or_create(
             slug=ORG_SLUG,
             defaults={"name": ORG_NAME, "theme_color": "#0F766E"},
+        )
+
+        # Before any data: the tenant needs somebody who can log in. Without
+        # this, `seed_marsabit` produced an org, two instruments, seven
+        # missions and 12,081 rows that NOBODY could see — the account had to
+        # be made by hand in admin, and did not survive --create-db or a
+        # database rebuild. There will be at least one of those before the
+        # pitch.
+        self._ensure_demo_user(
+            org, options["password"], reset=options["reset_password"]
         )
 
         geiger, _ = SensorType.objects.get_or_create(
@@ -221,6 +258,50 @@ class Command(BaseCommand):
             "Provenance: modelled from published summary statistics. "
             "These are NOT measurements."
         )
+
+    def _ensure_demo_user(self, org, password, *, reset=False):
+        """Create (or find) the KNRA tenant login, in the Operator group.
+
+        Follows seed_demo: get_or_create, Group assignment, password from a
+        flag, credentials printed on completion. Like seed_demo, an existing
+        account is left alone by default — it may be a real user, or one an
+        operator made by hand — but unlike seed_demo there is an explicit
+        --reset-password escape hatch, because "the seed command cannot
+        recover a forgotten dev password" is how people end up back in admin
+        creating accounts by hand, which is the bug this fixes.
+        """
+        group, _ = Group.objects.get_or_create(name=DEMO_GROUP)
+
+        user, created = User.objects.get_or_create(
+            username=DEMO_USER,
+            defaults={"email": DEMO_USER, "organization": org},
+        )
+        if created:
+            user.set_password(password)
+            user.save(update_fields=["password"])
+        elif reset:
+            user.set_password(password)
+            user.save(update_fields=["password"])
+
+        # Re-assert org and group every run. These are cheap, idempotent, and
+        # a user in the right group but the WRONG org sees an empty console
+        # while looking perfectly configured — the worst kind of broken.
+        if user.organization_id != org.id:
+            user.organization = org
+            user.save(update_fields=["organization"])
+        user.groups.add(group)
+
+        if created:
+            state = "created"
+        elif reset:
+            state = "exists (password reset)"
+        else:
+            state = "exists (left untouched)"
+        self.stdout.write(self.style.SUCCESS(
+            f"  user {DEMO_USER} — {state}, {DEMO_GROUP} group, org '{org.slug}'"
+        ))
+        if created or reset:
+            self.stdout.write(f"  password: {password}")
 
     def _seed_site(self, rng, org, robot, site, scale, day_offset):
         n = max(1, int(site["n"] * scale))
