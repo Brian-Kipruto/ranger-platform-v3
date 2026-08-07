@@ -83,45 +83,66 @@ export async function exportCsv(filters: DataLogFilters): Promise<void> {
  * Filter dropdown options.
  *
  * Feature 05 does NOT build /api/robots/ or /api/missions/ (they're in the V3
- * arch doc but out of this feature's scope, and don't exist yet). Rather than
+ * arch doc but out of that feature's scope, and don't exist yet). Rather than
  * expand scope, we derive the available robots and missions from a one-shot
  * unpaginated pull of the chart-data endpoint (which returns every row for the
  * org, each carrying robot_id/robot_id_str/robot_name and mission_id/
  * mission_name). De-duplicated client-side.
  *
+ * F10.3 CP0: this used to be TWO exported functions, each making its own
+ * /chart-data/ call. The Data Explorer called both on mount, so filling two
+ * dropdowns cost two full capped pulls (MAX_CHART_POINTS = 5000 rows each)
+ * before /map-data/ fetched a third. That was free at 435 simulated Nairobi
+ * points and is not free at 12,081 modelled Marsabit ones. One call now.
+ *
  * NOTE: this derives options only from robots/missions that have LOGGED data.
  * A robot with zero logs won't appear. That's acceptable for a data explorer
  * (you can't explore data that doesn't exist), and when real /api/robots/ and
- * /api/missions/ endpoints land, swapping these two functions to hit them is
- * a localized change — the dropdown components consume RobotOption[] /
+ * /api/missions/ endpoints land, swapping this function to hit them is a
+ * localized change — the dropdown components consume RobotOption[] /
  * MissionOption[] either way.
  */
-export async function getRobotOptions(): Promise<RobotOption[]> {
+export interface FilterOptions {
+  robots: RobotOption[]
+  missions: MissionOption[]
+}
+
+export async function getFilterOptions(): Promise<FilterOptions> {
   const { data } = await api.get<DataLog[]>("/chart-data/")
-  const seen = new Map<number, RobotOption>()
+
+  const robotsSeen = new Map<number, RobotOption>()
+  const missionsSeen = new Map<number, MissionOption>()
+
   for (const row of data) {
-    if (!seen.has(row.robot_id)) {
-      seen.set(row.robot_id, {
+    if (!robotsSeen.has(row.robot_id)) {
+      robotsSeen.set(row.robot_id, {
         id: row.robot_id, // integer PK — the list endpoint's robot_id filter
         robot_id_str: row.robot_id_str,
         name: row.robot_name,
       })
     }
-  }
-  return Array.from(seen.values())
-}
-
-export async function getMissionOptions(): Promise<MissionOption[]> {
-  const { data } = await api.get<DataLog[]>("/chart-data/")
-  const seen = new Map<number, MissionOption>()
-  for (const row of data) {
-    if (row.mission_id !== null && !seen.has(row.mission_id)) {
-      seen.set(row.mission_id, {
+    if (row.mission_id !== null && !missionsSeen.has(row.mission_id)) {
+      missionsSeen.set(row.mission_id, {
         id: row.mission_id,
         name: row.mission_name ?? `Mission ${row.mission_id}`,
       })
     }
   }
-  return Array.from(seen.values())
+
+  return {
+    robots: Array.from(robotsSeen.values()),
+    missions: Array.from(missionsSeen.values()),
+  }
+}
+
+/** @deprecated Use getFilterOptions() — this makes a second full pull.
+ *  Kept so any other caller keeps compiling; delete once none remain. */
+export async function getRobotOptions(): Promise<RobotOption[]> {
+  return (await getFilterOptions()).robots
+}
+
+/** @deprecated See getRobotOptions. */
+export async function getMissionOptions(): Promise<MissionOption[]> {
+  return (await getFilterOptions()).missions
 }
 // ─── RANGER V3 END: data logs api ───
