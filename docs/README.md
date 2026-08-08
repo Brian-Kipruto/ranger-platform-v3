@@ -44,6 +44,8 @@ One markdown file per feature/phase, documenting end-to-end implementation. Each
 - [`10-1-postgis-foundation-retrospective.md`](./features/10-1-postgis-foundation-retrospective.md) — what worked, the passing-checks-with-wrong-ENGINE trap, the ROS/pytest collision, the file-rename friction, carry-forwards to F10.2
 - [`10-2-gee-integration.md`](./features/10-2-gee-integration.md) — F10 epic, sub-feature 2: Earth Engine client, 10-dataset catalog, four provenance tiers, 12,081 modelled Marsabit points, clipped COG retrieval with PostGIS-asserted footprints, seven org-scoped read endpoints
 - [`10-2-gee-integration-retrospective.md`](./features/10-2-gee-integration-retrospective.md) — what worked, the three stale-state traps, the warning that explained itself away, the frontend provenance gap, carry-forwards to F10.3
+- [`10-3-satellite-view.md`](./features/10-3-satellite-view.md) — F10 epic, sub-feature 3: provenance surfaced across the console, uncapped provenance summary on `/map-data/`, COG→PNG render endpoint with a per-(dataset, layer) calibration registry, scene-stretched ramps with a reported range, the Satellite Integration screen, and the ground sensor track drawn over the imagery
+- [`10-3-satellite-view-retrospective.md`](./features/10-3-satellite-view-retrospective.md) — what worked, the same count-vs-set bug three times, the `.distinct()` on an ordered queryset, the test whose right and wrong answers coincided, misreading `is_verified` off its name, carry-forwards to F10.4
 
 ### `decisions/`
 Architecture Decision Records (ADRs). Short, dated records of important technical choices. Format: problem → options considered → decision → consequences.
@@ -60,6 +62,8 @@ Architecture Decision Records (ADRs). Short, dated records of important technica
 - [`0010-shared-fieldmap-and-basemaps.md`](./decisions/0010-shared-fieldmap-and-basemaps.md) — Extract one `<FieldMap>` for both Data Explorer and Dashboard; accent-as-prop (paint props can't read CSS vars), `installLayers()` single re-add point on `styledata`, per-screen chrome via flags, key-aware basemap registry
 - [`0011-geospatial-db-postgis-now-timescaledb-later.md`](./decisions/0011-geospatial-db-postgis-now-timescaledb-later.md) — PostGIS adopted for F10, TimescaleDB deferred; geometry(Point,4326) 2D as sole source of truth with lat/lon as derived properties; one sanctioned write path via `core.geo.point_from_latlon`
 - [`0012-satellite-eo-gee-cog-pipeline.md`](./decisions/0012-satellite-eo-gee-cog-pipeline.md) — GEE as primary provider (and the noncommercial-licensing problem it defers), four provenance tiers defaulting to the weakest, three-way tenancy asymmetry, `getDownloadURL` → clipped COG on disk rather than expiring tile URLs, EPSG:4326 with raw pixel values, footprint read from the raster and asserted in PostGIS, `cog_path` never serialized
+
+- [`0013-raster-delivery-and-layer-semantics.md`](./decisions/0013-raster-delivery-and-layer-semantics.md) — PNG rendered from our own COGs rather than expiring GEE tile URLs or a tile server overbuilt for 300 m sites; a layer is a `(dataset, layer)` pair with declared calibration, because an additive offset does not cancel in a normalised ratio and Landsat NDVI from raw DNs renders convincingly and wrong; captions state what each number is NOT; provenance summaries computed on the uncapped set
 
 ### `troubleshooting/`
 Error logs and fixes. Each entry records: what we saw, what caused it, how we fixed it, how to prevent it.
@@ -83,6 +87,7 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 - [`017-ros-pythonpath-breaks-pytest.md`](./troubleshooting/017-ros-pythonpath-breaks-pytest.md) — pytest exits before collection because ROS 2's `PYTHONPATH` leaks a Python 3.10 plugin into the 3.11 venv; run `PYTHONPATH= pytest`
 - [`018-gee-service-account-missing-iam-roles.md`](./troubleshooting/018-gee-service-account-missing-iam-roles.md) — Earth Engine 403s identically for a bad key and a valid key missing IAM roles; the account needs both Service Usage Consumer and Earth Engine Resource Writer
 - [`019-stale-catalog-blank-cloud-property.md`](./troubleshooting/019-stale-catalog-blank-cloud-property.md) — `--max-cloud` silently did nothing because catalog rows carried a blank `cloud_property` since the field was added; `check_gee` verifies the catalog against the world but nothing verified the database against the catalog
+- [`020-max-age-served-stale-render.md`](./troubleshooting/020-max-age-served-stale-render.md) — a rewritten renderer changed nothing on screen because `Cache-Control: max-age=3600` let the browser answer from disk without contacting Django; `Ctrl+Shift+R` does not cover an XHR fired later by JS, so the hard reload appeared to exonerate the cache
 
 ---
 
