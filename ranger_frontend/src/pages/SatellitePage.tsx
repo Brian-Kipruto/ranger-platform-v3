@@ -25,6 +25,13 @@ import { Panel } from "@/components/console/Panel"
 import { MonoLabel } from "@/components/console/MonoLabel"
 import { MetricTile } from "@/components/console/MetricTile"
 import { FieldMap, type FieldMapRaster } from "@/components/map/FieldMap"
+import { getMapData } from "@/api/dataLogs"
+import {
+  MEASURED_SOURCES,
+  SOURCE_META,
+  type DataSource,
+  type MapFeatureCollection,
+} from "@/types/dataLog.types"
 import type { BasemapMode } from "@/components/map/basemaps"
 import { useAuthStore } from "@/stores/authStore"
 import {
@@ -119,6 +126,21 @@ export default function SatellitePage() {
   const [raster, setRaster] = useState<FieldMapRaster | null>(null)
   const [rasterError, setRasterError] = useState<string | null>(null)
   const [rampStats, setRampStats] = useState<RampStats | null>(null)
+
+  /**
+   * Ground sensor track over the same AOI (F10.3 CP4.2).
+   *
+   * The pitch thesis is that satellite EO explains ground radiological
+   * variability and ground data validates satellite surface products. Until
+   * now those two halves lived on separate screens, which asks a viewer to
+   * hold them together in their head. Here they share one viewport: gamma
+   * readings drawn OVER the index they are supposed to correlate with.
+   *
+   * CP4 already forces the raster beneath TRACK_LAYER, so this needs no map
+   * changes at all — the ordering was built for exactly this.
+   */
+  const [track, setTrack] = useState<MapFeatureCollection | null>(null)
+  const [trackLoading, setTrackLoading] = useState(false)
   const [rasterLoading, setRasterLoading] = useState(false)
   // Controlled, with a handler — passing `basemap` without one would freeze
   // the SAT/VECTOR/TOPO control. Defaults to "sat": an EO overlay against a
@@ -235,6 +257,39 @@ export default function SatellitePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeImage, activeLayer])
 
+  // ── ground track for the active scene's AOI ──
+  useEffect(() => {
+    if (!activeImage) {
+      setTrack(null)
+      return
+    }
+    // The scene belongs to a query; the query may belong to a mission. A
+    // satellite-only AOI has NO mission (Mission.robot is non-null, so an
+    // unreachable site arrives as an ad-hoc bbox) — and in that case the
+    // absence of a track is the point, not a gap. Chumvi will land here.
+    const query = queries.items.find((q) => q.id === activeImage.query)
+    if (!query?.mission) {
+      setTrack(null)
+      return
+    }
+
+    let cancelled = false
+    setTrackLoading(true)
+    getMapData({ mission_id: query.mission })
+      .then((fc) => {
+        if (!cancelled) setTrack(fc)
+      })
+      .catch(() => {
+        if (!cancelled) setTrack(null)
+      })
+      .finally(() => {
+        if (!cancelled) setTrackLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeImage, queries])
+
   // Opacity is a paint change, not a new image. Refetching for it would
   // re-request a PNG we already hold.
   useEffect(() => {
@@ -250,6 +305,22 @@ export default function SatellitePage() {
   }, [])
 
   const selectImage = useCallback((id: number) => setActiveImageId(id), [])
+
+  /** What the track actually contains, for the line under the map. */
+  const trackSummary = (() => {
+    const feats = track?.features ?? []
+    if (feats.length === 0) return null
+    const tiers = new Set<DataSource>(feats.map((f) => f.properties.source))
+    const ordered = (["live", "reported", "modelled", "simulated"] as const)
+      .filter((t) => tiers.has(t))
+    const anyGenerated = ordered.some((t) => !MEASURED_SOURCES.includes(t))
+    return {
+      count: feats.length,
+      tiers: ordered,
+      anyGenerated,
+      note: feats[0].properties.provenance_note,
+    }
+  })()
 
   const imageList = images.items
   const queryList = queries.items
@@ -437,6 +508,11 @@ export default function SatellitePage() {
               accent={accent}
               raster={raster}
               fitToRaster
+              track={track}
+              // fitToRaster owns the viewport. Both fitters would fight, and
+              // the raster footprint is the tighter, more relevant frame —
+              // the track can extend well beyond one scene's clip.
+              fitToTrack={false}
               showOverlays={false}
               expandable
               height={420}
@@ -471,6 +547,48 @@ export default function SatellitePage() {
                 </>
               ) : (
                 "No scene selected. Run fetch_scenes to retrieve imagery."
+              )}
+            </div>
+
+            {/* ── ground truth over the same AOI ──
+                The two halves of the argument, in one line: what the ground
+                measured, at what provenance tier, over the scene it is being
+                correlated with. Silence here is meaningful too — a satellite
+                -only AOI has no track, and saying so is the Chumvi case. */}
+            <div className="mt-1.5 font-mono text-[9.5px] leading-[1.7]">
+              {trackLoading ? (
+                <span className="text-fg-dim">Loading ground track…</span>
+              ) : trackSummary ? (
+                <span className="text-fg-dim">
+                  <span className="text-fg-soft">GROUND TRUTH</span>
+                  {" — "}
+                  {trackSummary.count.toLocaleString()} gamma dose-rate points
+                  over this AOI{" "}
+                  {trackSummary.tiers.map((t) => (
+                    <span
+                      key={t}
+                      className="ml-1 px-1 py-0.5 rounded border text-[8.5px] tracking-[0.08em]"
+                      style={{
+                        color: SOURCE_META[t].color,
+                        borderColor: `${SOURCE_META[t].color}55`,
+                        background: `${SOURCE_META[t].color}15`,
+                      }}
+                    >
+                      {SOURCE_META[t].short}
+                    </span>
+                  ))}
+                  {trackSummary.anyGenerated ? (
+                    <div className="mt-1">
+                      ⚠ These points are NOT measurements.
+                      {trackSummary.note ? ` ${trackSummary.note}` : ""}
+                    </div>
+                  ) : null}
+                </span>
+              ) : (
+                <span className="text-fg-dim">
+                  GROUND TRUTH — none for this AOI. Satellite coverage here
+                  stands alone.
+                </span>
               )}
             </div>
 
