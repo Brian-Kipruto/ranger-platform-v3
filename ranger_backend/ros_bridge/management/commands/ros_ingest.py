@@ -94,6 +94,7 @@ class Command(BaseCommand):
                 if client.is_connected != connected:
                     connected = client.is_connected
                     self.stderr.write(f"rosbridge {'reconnected' if connected else 'DISCONNECTED'}")
+        except KeyboardInterrupt:
             pass
         finally:
             topic.unsubscribe()
