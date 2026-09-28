@@ -334,8 +334,14 @@ class Command(BaseCommand):
         return stored, failures
 
     def _retrieve_one(self, *, query, dataset, site, org, scene, overwrite):
+        # The AOI is part of the file's identity, not just its metadata — the
+        # file is a CLIP. Without this, sites sharing a Sentinel-2 tile share
+        # a filename and the second silently inherits the first's pixels.
         relative = cog.relative_cog_path(
-            org_slug=org.slug, dataset_code=dataset.code, asset_id=scene.asset_id
+            org_slug=org.slug,
+            dataset_code=dataset.code,
+            asset_id=scene.asset_id,
+            aoi_key=site["code"] if site else f"query-{query.pk}",
         )
         destination = cog.absolute_cog_path(relative)
 

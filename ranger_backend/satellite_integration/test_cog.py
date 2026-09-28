@@ -198,6 +198,45 @@ class TestStorageLayout:
         )
         assert path.count("/") == 2
 
+    def test_same_asset_different_aoi_gets_a_different_path(self):
+        """The regression that cost four fetches (F10.3 CP5).
+
+        A file here is the scene CLIPPED to one AOI, not the scene. Boji,
+        Gamura, both Dukana wells and Balesa all fall inside Sentinel-2 tile
+        T37NCD and were retrieved from the same pass, so they share an asset
+        id. Keyed on asset id alone, the second AOI found the first AOI's clip
+        on disk and reused it — a valid COG, correct asset id, wrong pixels.
+
+        Only the PostGIS footprint assertion caught it. This test means the
+        path itself no longer permits the collision.
+        """
+        asset = "COPERNICUS/S2_SR_HARMONIZED/20260805T073609_T37NCD"
+        boji = cog.relative_cog_path(
+            org_slug="knra", dataset_code="s2", asset_id=asset, aoi_key="boji"
+        )
+        gamura = cog.relative_cog_path(
+            org_slug="knra", dataset_code="s2", asset_id=asset, aoi_key="gamura"
+        )
+        assert boji != gamura
+        assert boji.endswith("__boji.tif")
+        assert gamura.endswith("__gamura.tif")
+
+    def test_omitting_aoi_key_preserves_the_old_layout(self):
+        """Rows written before F10.3 keep resolving to their existing files —
+        no migration, no orphans."""
+        path = cog.relative_cog_path(
+            org_slug="knra", dataset_code="s2", asset_id="COPERNICUS/X/Y"
+        )
+        assert path == "knra/s2/COPERNICUS_X_Y.tif"
+
+    def test_aoi_key_is_sanitized_too(self):
+        path = cog.relative_cog_path(
+            org_slug="knra", dataset_code="s2", asset_id="A",
+            aoi_key="../../etc/passwd",
+        )
+        assert ".." not in path
+        assert path.count("/") == 2
+
     def test_traversal_characters_are_stripped(self):
         path = cog.relative_cog_path(
             org_slug="knra", dataset_code="s2", asset_id="../../etc/passwd"

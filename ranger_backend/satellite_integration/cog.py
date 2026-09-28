@@ -326,11 +326,39 @@ def sanitize_asset_id(asset_id: str) -> str:
     return cleaned
 
 
-def relative_cog_path(*, org_slug: str, dataset_code: str, asset_id: str) -> str:
-    """The value to store in SatelliteImage.cog_path."""
+def relative_cog_path(
+    *, org_slug: str, dataset_code: str, asset_id: str, aoi_key: str | None = None
+) -> str:
+    """The value to store in SatelliteImage.cog_path.
+
+    `aoi_key` is not optional in spirit, only in signature.
+
+    A file here is NOT the scene — it is the scene CLIPPED to one AOI. Keying
+    the path on asset_id alone assumes one asset means one file, and that is
+    false: a Sentinel-2 tile is 110 km across, and the seven KNRA survey sites
+    sit within about 80 km of each other. Five of them (Boji, Gamura, both
+    Dukana wells, Balesa) fall inside tile T37NCD on the same pass, so they
+    share an asset_id — and the second AOI to arrive found the first AOI's
+    clip already on disk and reused it.
+
+    Nothing about that reuse looked wrong: the file existed, was a valid COG,
+    and carried the right asset id. It was simply pixels from somewhere else.
+    Only the PostGIS footprint assertion in `fetch_scenes` caught it, which is
+    exactly what that assertion was written for.
+
+    Passing `aoi_key` (the site code, or a query identifier for an ad-hoc
+    bbox) makes the path say what the file actually is.
+
+    Omitting it preserves the pre-F10.3 layout, so rows written before this
+    change keep resolving to the files they already point at — no migration,
+    no orphans.
+    """
+    stem = sanitize_asset_id(asset_id)
+    if aoi_key:
+        stem = f"{stem}__{sanitize_asset_id(aoi_key)}"
     return (
         f"{sanitize_asset_id(org_slug)}/{sanitize_asset_id(dataset_code)}/"
-        f"{sanitize_asset_id(asset_id)}.tif"
+        f"{stem}.tif"
     )
 
 
