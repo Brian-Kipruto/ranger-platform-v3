@@ -7,6 +7,7 @@ import DashboardPage from "@/pages/DashboardPage"
 import DataExplorerPage from "@/pages/DataExplorerPage"
 import VisualizationsPage from "@/pages/VisualizationsPage"
 import SatellitePage from "@/pages/SatellitePage"
+import MissionControlPage from "@/pages/MissionControlPage"
 import StubPage from "@/pages/StubPage"
 import ProtectedRoute from "@/components/ProtectedRoute"
 import AppShell from "@/components/console/AppShell"
@@ -39,8 +40,8 @@ function App() {
           ProtectedRoute guards auth, AppShell provides the frame, and each
           child renders into the shell's <Outlet />.
 
-          Built screens: dashboard, data, visualizations, satellite.
-          Stub screens (nav routes here, real feature later): mission,
+          Built screens: dashboard, data, visualizations, satellite, mission.
+          Stub screens (nav routes here, real feature later):
           workspace, fleet, alerts, reports, ai, admin, community.
         */}
         <Route
@@ -56,7 +57,7 @@ function App() {
           <Route path="/satellite" element={<SatellitePage />} />
 
           {/* unbuilt screens — clickable stubs */}
-          <Route path="/mission" element={<StubPage />} />
+          <Route path="/mission" element={<MissionControlPage />} />
           <Route path="/workspace" element={<StubPage />} />
           <Route path="/fleet" element={<StubPage />} />
           <Route path="/alerts" element={<StubPage />} />
