@@ -65,6 +65,11 @@ Architecture Decision Records (ADRs). Short, dated records of important technica
 
 - [`0013-raster-delivery-and-layer-semantics.md`](./decisions/0013-raster-delivery-and-layer-semantics.md) — PNG rendered from our own COGs rather than expiring GEE tile URLs or a tile server overbuilt for 300 m sites; a layer is a `(dataset, layer)` pair with declared calibration, because an additive offset does not cancel in a normalised ratio and Landsat NDVI from raw DNs renders convincingly and wrong; captions state what each number is NOT; provenance summaries computed on the uncapped set
 
+### `analysis/`
+Findings produced BY the platform, with method and limits stated. Distinct from `features/` (what we built) and `decisions/` (why we built it that way).
+
+- [`A01-vegetation-index-vs-gamma-dose.md`](./analysis/A01-vegetation-index-vs-gamma-dose.md) — tested whether NDVI/BSI explain gamma dose variance across the seven KNRA sites; they do not (rho +0.39 and +0.18, n=7, threshold 0.786), and the sign is opposite to soil-water attenuation. Variance appears lithological — Forole carries ~7x Boji's ⁴⁰K. Includes the rule F10.4 must follow: correlation only against `live`/`reported` tiers, never `modelled`
+
 ### `troubleshooting/`
 Error logs and fixes. Each entry records: what we saw, what caused it, how we fixed it, how to prevent it.
 
