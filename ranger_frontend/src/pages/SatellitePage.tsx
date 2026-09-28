@@ -325,6 +325,105 @@ export default function SatellitePage() {
   const imageList = images.items
   const queryList = queries.items
 
+  /** "Forole Hills foothills" -> "FOROLE". Declared before the grouping
+   *  below, which calls it while counting label collisions. */
+  const shortSite = (label: string) =>
+    label.split(/[\s(]/)[0].toUpperCase().slice(0, 10)
+
+  /**
+   * Scenes grouped by SITE, not by product (F10.3 CP5).
+   *
+   * The picker used to label every button with its dataset code, which was
+   * fine at two scenes over one AOI and useless at seven: `S2 S2 S2 S2 S2 S2
+   * L9` names the sensor and hides the only thing the user is choosing
+   * between. With one scene per KNRA survey site the axis that matters is
+   * WHERE; the product is a secondary choice within it.
+   *
+   * Site identity is the AOI bbox — the same key SITES COVERED uses, so the
+   * two cannot disagree — because a satellite-only AOI has no mission at all
+   * (Mission.robot is non-null).
+   */
+  const sceneOptions = imageList
+    .filter((i) => i.has_cog)
+    .map((image) => {
+      const q = queries.items.find((x) => x.id === image.query)
+      return {
+        image,
+        siteKey: q?.aoi_bbox
+          ? q.aoi_bbox.map((v) => v.toFixed(4)).join(",")
+          : (q?.mission_name ?? `query-${image.query}`),
+        siteLabel: q?.mission_name ?? q?.label ?? "Unnamed AOI",
+      }
+    })
+
+  /** One entry per site, alphabetical so the strip does not reshuffle. */
+  const rawSites = Array.from(
+    sceneOptions
+      .reduce((acc, opt) => {
+        if (!acc.has(opt.siteKey)) {
+          acc.set(opt.siteKey, {
+            key: opt.siteKey,
+            label: opt.siteLabel,
+            scenes: [] as SatelliteImage[],
+          })
+        }
+        acc.get(opt.siteKey)!.scenes.push(opt.image)
+        return acc
+      }, new Map<string, { key: string; label: string; scenes: SatelliteImage[] }>())
+      .values()
+  ).sort((a, b) => a.label.localeCompare(b.label))
+
+  /**
+   * Button labels, disambiguated.
+   *
+   * `shortSite` takes the first word, which is right for six of the seven
+   * sites and wrong for the two Dukana wells: "Dukana (Laga Balal) Well 1"
+   * and "Well 2" both shorten to DUKANA, giving two identical buttons that
+   * select different AOIs. Where a short label collides, append the trailing
+   * number from the full name.
+   */
+  const shortCounts = new Map<string, number>()
+  for (const site of rawSites) {
+    const key = shortSite(site.label)
+    shortCounts.set(key, (shortCounts.get(key) ?? 0) + 1)
+  }
+  const sites = rawSites.map((site) => {
+    const base = shortSite(site.label)
+    if ((shortCounts.get(base) ?? 0) <= 1) return { ...site, short: base }
+    const trailing = site.label.match(/(\d+)\s*$/)?.[1]
+    return {
+      ...site,
+      short: trailing
+        ? `${base} ${trailing}`
+        : `${base} ${site.label.split(/\s+/).slice(-1)[0].toUpperCase()}`,
+    }
+  })
+
+  const activeSiteKey =
+    sceneOptions.find((o) => o.image.id === activeImageId)?.siteKey ?? null
+  const activeSite = sites.find((x) => x.key === activeSiteKey) ?? null
+
+  /**
+   * Switching site keeps the current PRODUCT where that site has it.
+   *
+   * Comparing Forole against Boji is the whole point of seven sites; silently
+   * dropping from L9 back to S2 mid-comparison would change two variables at
+   * once, which is how a covariate argument stops being one.
+   */
+  const selectSite = useCallback(
+    (key: string) => {
+      const site = rawSites.find((x) => x.key === key)
+      if (!site || site.scenes.length === 0) return
+      const sameProduct = site.scenes.find(
+        (sc) => sc.dataset_code === activeImage?.dataset_code
+      )
+      setActiveImageId((sameProduct ?? site.scenes[0]).id)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sceneOptions.length, activeImage, imageList.length]
+  )
+
+
   const scenesOnDisk = imageList.filter((i) => i.has_cog).length
   const verified = datasets.filter((d) => d.is_verified).length
   const lastPass = imageList.length
@@ -436,34 +535,60 @@ export default function SatellitePage() {
                 : rasterError
                   ? "RENDER FAILED"
                   : activeImage
-                    ? `${activeImage.dataset_code.toUpperCase()} · ${activeImage.resolution_m} M`
+                    ? `${activeSite ? activeSite.short + " · " : ""}${activeImage.dataset_code.toUpperCase()} · ${activeImage.resolution_m} M`
                     : "NO SCENE"}
             </MonoLabel>
           }
           bodyClassName="p-0"
         >
           <div className="p-[14px] pb-0 flex flex-wrap items-center gap-2">
-            {/* Scene picker — only scenes with pixels are selectable. */}
-            {imageList.map((image) => (
+            {/* Site picker — the axis that actually matters. */}
+            {sites.map((site) => (
               <button
-                key={image.id}
-                onClick={() => selectImage(image.id)}
-                disabled={!image.has_cog}
-                className="font-mono text-[9px] tracking-[0.08em] px-2 py-1 rounded border transition-colors disabled:opacity-40"
+                key={site.key}
+                onClick={() => selectSite(site.key)}
+                className="font-mono text-[9px] tracking-[0.08em] px-2 py-1 rounded border transition-colors"
                 style={{
-                  color: image.id === activeImageId ? accent : undefined,
+                  color: site.key === activeSiteKey ? accent : undefined,
                   borderColor:
-                    image.id === activeImageId ? `${accent}88` : undefined,
+                    site.key === activeSiteKey ? `${accent}88` : undefined,
                   background:
-                    image.id === activeImageId ? `${accent}18` : undefined,
+                    site.key === activeSiteKey ? `${accent}18` : undefined,
                 }}
-                title={`${image.dataset_name} · ${new Date(
-                  image.acquisition_date
-                ).toLocaleDateString()}`}
+                title={`${site.label} · ${site.scenes.length} scene${
+                  site.scenes.length === 1 ? "" : "s"
+                }`}
               >
-                {image.dataset_code.toUpperCase()}
+                {site.short}
               </button>
             ))}
+
+            {/* Product picker, only where the site HAS more than one. A lone
+                button offering no alternative is chrome, not a control. */}
+            {activeSite && activeSite.scenes.length > 1 ? (
+              <>
+                <span className="w-px h-4 bg-border-strong mx-1" />
+                {activeSite.scenes.map((scene) => (
+                  <button
+                    key={scene.id}
+                    onClick={() => selectImage(scene.id)}
+                    className="font-mono text-[9px] tracking-[0.08em] px-2 py-1 rounded border transition-colors"
+                    style={{
+                      color: scene.id === activeImageId ? accent : undefined,
+                      borderColor:
+                        scene.id === activeImageId ? `${accent}88` : undefined,
+                      background:
+                        scene.id === activeImageId ? `${accent}18` : undefined,
+                    }}
+                    title={`${scene.dataset_name} · ${new Date(
+                      scene.acquisition_date
+                    ).toLocaleDateString()} · ${scene.resolution_m} m`}
+                  >
+                    {scene.dataset_code.toUpperCase()}
+                  </button>
+                ))}
+              </>
+            ) : null}
 
             <span className="w-px h-4 bg-border-strong mx-1" />
 
