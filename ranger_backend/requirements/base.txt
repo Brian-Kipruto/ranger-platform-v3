@@ -22,6 +22,9 @@ python-dotenv==1.0.1
 # Utilities
 Pillow==11.0.0
 
+#ros
+roslibpy==2.1.0
+
 # ─── RANGER V3 START: satellite EO (F10.2) ───
 # Earth Engine. Pulls google-auth and friends; imported lazily by gee_client so
 # a missing key never breaks `manage.py check` or the test suite.
