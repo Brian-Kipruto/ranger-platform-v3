@@ -13,8 +13,9 @@ django_asgi_app = get_asgi_application()
 from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
 from channels.security.websocket import AllowedHostsOriginValidator  # noqa: E402
 
-# Will be populated when ros_bridge / api WebSocket routes are added
-websocket_urlpatterns: list = []
+# ─── RANGER V3 START: 09-live-console ───
+from ros_bridge.routing import websocket_urlpatterns  # noqa: E402
+# ─── RANGER V3 END: 09-live-console ───
 
 application = ProtocolTypeRouter({
     "http": django_asgi_app,
