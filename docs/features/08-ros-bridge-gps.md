@@ -1,8 +1,8 @@
 # F08 — ROS Bridge: GPS → SensorLog
 
-*Date: 2026-09-28*
+*Date: 2026-09-28 · Signed off: 2026-10-03*
 *Branch: `feat/ros-bridge-gps` (from `feat/postgis-foundation`)*
-*Status: **sim-verified end to end. Real-sky sign-off pending a replacement NEO-M8N.***
+*Status: **complete.** Real GPS fixes landed in Postgres as `live` rows, verified by query.*
 
 ---
 
@@ -22,12 +22,48 @@ reading table hangs off that log.
 |---|---|---|
 | 1a — NMEA → `/fix` on the Orin → rosbridge → PC | `nmea_sim` over a socat pty | ✅ `4811dbb` |
 | 1b — `/fix` → `SensorLog` in Postgres | 24 `simulated` rows, verified by query | ✅ `74553b7` |
-| Real sky — NEO-M8N on `/dev/ttyTHS1`, `--source live` | — | ⏳ module destroyed; replacement ordered |
+| Real sky — NEO-6M via FTDI USB, `--source live` | 22 `live` rows, verified by query | ✅ 2026-10-03 |
 
-**F08 is not signed off until real coordinates land as `live` rows.**
-
-See [`ADR-0014`](../decisions/0014-robot-code-in-repo-gps-on-header-uart.md) and
+See [`ADR-0014`](../decisions/0014-robot-code-in-repo-gps-on-header-uart.md)
+(amended 2026-10-03) and
 [`ADR-0015`](../decisions/0015-ros-ingest-provenance-timestamps-threading.md).
+
+---
+
+## Sign-off evidence (2026-10-03)
+
+Outdoors. NEO-6M on a `GY-GPS6MV2` /
+`HW-248` carrier, through an FTDI FT232R cable into the Orin's USB.
+
+Fix quality at sign-off: `qual=1`, **4–5 satellites, HDOP 3.0–3.3** — a marginal
+fix. Cold start took roughly 15 minutes, most of it beside a wall where the
+satellites in view were bunched (HDOP climbed past 45 with 4 satellites and the
+receiver correctly refused to declare a fix). Moving to open sky fixed it.
+
+```
+$ python manage.py ros_ingest --source live
+Connected. /fix -> SensorLog for RANGER-PRIME-001 (source=live). Ctrl-C to stop.
+SensorLog #24643: -0.424254, 36.971360 [live] @ 14:06:05Z
+...
+SensorLog #24664: -0.424347, 36.971518 [live] @ 14:06:26Z
+Stopped. {'no_fix': 8, 'saved': 22}
+```
+
+```
+$ python manage.py shell -c "...filter(robot__robot_id_str='RANGER-PRIME-001', source='live')..."
+live rows: 22
+24664 2026-10-03 14:06:26.643255+00:00 -0.4243468333333333 36.971518 live
+```
+
+- `saved` equals the row count; every row `live`; coordinates match the raw NMEA
+  and are not inverted.
+- `no_fix: 8` — the fix dropped at the end of the run; skipped, nothing stored.
+- Timestamps are the robot's stamps; zero `clock_skew` skips (after the clock was
+  corrected — see TS-025).
+- **Stationary jitter: ~21 m over 20 s** (18 m E–W, 11 m N–S) with the receiver
+  not moving. That is the real accuracy of a 4–5 satellite, HDOP-3 fix, and it
+  bounds any ground-truth claim made from fixes of this quality.
+- Ctrl-C exits with `Stopped. {...}` and no traceback.
 
 ---
 
@@ -36,7 +72,7 @@ See [`ADR-0014`](../decisions/0014-robot-code-in-repo-gps-on-header-uart.md) and
 ```
 ORIN (aarch64, headless, USB-tethered)                 PC (x86_64, Django, Postgres)
 ─────────────────────────────────────                  ──────────────────────────────
-NEO-M8N ──UART── /dev/ttyTHS1                          
+NEO-6M ──FTDI USB── /dev/serial/by-id/usb-FTDI_…       
    (or nmea_sim ── socat pty ── /tmp/gps_sim)          
             │                                          
       robot/gps_node.py                                
@@ -49,52 +85,89 @@ NEO-M8N ──UART── /dev/ttyTHS1
                                                   SensorLog (Postgres/PostGIS)
 ```
 
-The ingest command runs on the PC because that is where Django runs. The 1a
-checkpoint probe (`gps_listen.py`) deliberately ran there too, so 1a proved the
-exact network path 1b depends on.
-
 ---
 
 ## Files
 
 | File | Runs on | Role |
 |---|---|---|
-| `robot/gps_node.py` | Orin | Reads NMEA, publishes `NavSatFix` on `/fix`. Params: `port` (default `/dev/ttyTHS1`), `baud` (9600), `frame_id` (`gps`) |
-| `robot/tools/nmea_sim.py` | Orin | Writes synthetic GGA at 1 Hz: 3 no-fix sentences, then fixes near Nairobi CBD. Test tool |
+| `robot/gps_node.py` | Orin | Reads NMEA, publishes `NavSatFix` on `/fix`. Params: `port` (default `/dev/ttyTHS1` — **pass the FTDI by-id path instead**, see ADR-0014), `baud` (9600), `frame_id` (`gps`) |
+| `robot/tools/nmea_sim.py` | Orin | Synthetic GGA at 1 Hz: 3 no-fix sentences, then fixes near Nairobi CBD. Test tool |
 | `robot/tools/gps_listen.py` | PC | 1a checkpoint probe: prints `/fix` over rosbridge. Throwaway |
 | `ranger_backend/ros_bridge/management/commands/ros_ingest.py` | PC | Subscribes to `/fix`, writes `SensorLog` |
 | `ranger_backend/requirements/base.txt` | — | `roslibpy==2.1.0` |
 
-The Orin runs copies of the `robot/` files in `~/ranger/`. Deployment is manual
-for now (`scp`); see ADR-0014.
+The Orin runs copies of the `robot/` files in `~/ranger/`, deployed with `scp`
+(ADR-0014).
+
+---
+
+## Hardware (as signed off)
+
+GPS → FTDI FT232R cable (colours per **this** cable's listing — not the genuine
+FTDI code):
+
+| GPS board | Cable wire |
+|---|---|
+| VCC | red (5 V) |
+| GND | black |
+| **TX** | **white** (cable RXD) |
+| RX | leave unconnected — nothing is ever sent to the GPS |
+
+The cable's **green is its TXD.** Never join it to a GPS TX.
+
+Port: `/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AZ6YQ8AI-if00-port0` — stable
+across reboots and replugs, unlike `ttyUSB0`. `brltty` was installed on the Orin
+and has been removed (TS-026).
+
+The header UART (`/dev/ttyTHS1`, pins 8/10) passes loopback but has never
+received NMEA from a live module; see TS-023.
 
 ---
 
 ## Running it
 
-**Orin — once per boot:**
+**Once per boot — clock first.** `ros_ingest` skips fixes more than 120 s from
+server time.
 
 ```bash
-# PC first, if the Orin needs internet (apt, pip, NTP): restore NAT
+# PC: give the Orin internet (resets on every PC reboot)
 bash ~/jetson-internet.sh
-# Orin: confirm the clock is real — ros_ingest rejects skewed stamps
-timedatectl | grep synchronized          # expect: yes
+# Orin: compare against a real reference, not just the sync flag
+date -u          # vs the PC's date -u (in a PC terminal), or vs the GPS's GGA time
+# If off, set it from the PC — in a PC terminal:
+ssh -t brian@192.168.55.1 "sudo date -s @$(date +%s)"
 ```
 
-**Orin — the robot side (one SSH session each):**
+**Watch for a fix before starting the node** (Orin):
 
 ```bash
-# Real GPS
-python3 ~/ranger/gps_node.py --ros-args -p port:=/dev/ttyTHS1
-# ...or simulated:
-socat -d -d pty,raw,echo=0,link=/tmp/gps_sim pty,raw,echo=0,link=/tmp/gps_feed
-python3 ~/ranger/gps_node.py --ros-args -p port:=/tmp/gps_sim
-python3 ~/ranger/nmea_sim.py /tmp/gps_feed        # start LAST to see the no-fix path
+P=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AZ6YQ8AI-if00-port0
+stty -F $P 9600 raw -echo
+grep --line-buffered -a '^\$GPGGA' $P | mawk -W interactive -F, '{print $2, "qual="$7, "sats="$8, "hdop="$9, $3 $4, $5 $6}'
+```
 
+`mawk -W interactive` matters: plain `awk` (mawk on Ubuntu) block-buffers piped
+input and prints nothing for about a minute. Go on `qual=1`, 6+ sats, HDOP < ~2.5.
+**Ctrl-C the watcher before starting the node** — two readers on one serial port
+split the bytes and both get broken lines.
+
+**Robot side (Orin, one session each):**
+
+```bash
+python3 ~/ranger/gps_node.py --ros-args -p port:=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AZ6YQ8AI-if00-port0
 ros2 launch rosbridge_server rosbridge_websocket_launch.xml
 ```
 
-**PC — the platform side (`(.venv)` active):**
+Simulated instead:
+
+```bash
+socat -d -d pty,raw,echo=0,link=/tmp/gps_sim pty,raw,echo=0,link=/tmp/gps_feed
+python3 ~/ranger/gps_node.py --ros-args -p port:=/tmp/gps_sim
+pkill -f nmea_sim.py; python3 ~/ranger/nmea_sim.py /tmp/gps_feed   # LAST
+```
+
+**Platform side (PC, `(.venv)`):**
 
 ```bash
 cd ranger_backend
@@ -102,88 +175,41 @@ python manage.py ros_ingest                     # source=simulated (default)
 python manage.py ros_ingest --source live       # ONLY with a real receiver under sky
 ```
 
-Expected:
-
-```
-Connected. /fix -> SensorLog for RANGER-PRIME-001 (source=simulated). Ctrl-C to stop.
-SensorLog #24640: -1.286405, 36.817183 [simulated] @ 13:32:48Z
-...
-Stopped. {'saved': <n>, 'no_fix': <n>, ...}
-```
-
 **Verify in the database — never trust stdout:**
 
 ```bash
-python manage.py shell -c "from core.models import SensorLog as S; q=S.objects.filter(robot__robot_id_str='RANGER-PRIME-001', provenance_note__startswith='ros_bridge'); print('rows:', q.count()); [print(r.pk, r.timestamp, r.latitude, r.longitude, r.source) for r in q[:3]]"
+python manage.py shell -c "from core.models import SensorLog as S; q=S.objects.filter(robot__robot_id_str='RANGER-PRIME-001', source='live'); print('live rows:', q.count()); [print(r.pk, r.timestamp, r.latitude, r.longitude, r.source) for r in q[:3]]"
 ```
-
-```
-rows: 24
-24642 2026-09-28 13:32:50.781670+00:00 -1.2864166666666668 36.817225 simulated
-24641 2026-09-28 13:32:49.781673+00:00 -1.2863933333333333 36.81717666666667 simulated
-24640 2026-09-28 13:32:48.781653+00:00 -1.286405 36.81718333333333 simulated
-```
-
-Row count must equal `saved`; coordinates must be ~`-1.2864, 36.8172` (not
-inverted); every row `simulated`.
-
----
-
-## Switching to the real GPS
-
-No code change. Two flags:
-
-1. Orin: `-p port:=/dev/ttyTHS1` on the node.
-2. PC: `--source live` on `ros_ingest`.
-
-Wiring (Orin **powered off**, pins counted by touch — see TS-023 and TS-024):
-
-| NEO-M8N board | Orin 40-pin |
-|---|---|
-| VCC | pin 2 (5V) |
-| GND | pin 6 |
-| **TX** | **pin 10** (UART RXD) |
-| **RX** | **pin 8** (UART TXD) |
-
-Sanity check before any ROS: `stty -F /dev/ttyTHS1 9600 raw -echo -crtscts; timeout 5 cat /dev/ttyTHS1`
-must show `$GN…` sentences. Indoors they carry empty lat/long — expected.
 
 ---
 
 ## Gotchas
 
-**NaN arrives as `None`.** The node publishes NaN lat/long without a fix. JSON has
-no NaN, so rosbridge sends `null` and roslibpy yields `None`. The original spec's
-guard (`lon != lon`) would never have fired. `ros_ingest` gates on
-`status.status < 0` first, then treats `None` or NaN as a skip.
+**NaN arrives as `None`.** No-fix messages carry NaN; JSON has no NaN, so
+rosbridge sends `null`. `ros_ingest` gates on `status.status < 0` first.
 
-**`STATUS_FIX` is 0, not 1.** `NavSatStatus`: `NO_FIX=-1`, `FIX=0`, `SBAS_FIX=1`,
-`GBAS_FIX=2`. The Pass 1 vault spec had this wrong in its expected output.
+**`STATUS_FIX` is 0, not 1.** `NO_FIX=-1`, `FIX=0`, `SBAS_FIX=1`, `GBAS_FIX=2`.
 
-**`latitude`/`longitude` are not fields.** Since F10.1 they are read-only
-properties derived from `location`. The Pass 1 vault spec's
-`SensorLog.objects.create(latitude=…, longitude=…)` would raise. All writes go
-through `point_from_latlon(lat=…, lon=…)`.
+**`latitude`/`longitude` are not fields** — read-only properties of `location`
+since F10.1. Writes go through `point_from_latlon(lat=…, lon=…)`.
 
-**The ORM cannot run in the roslibpy callback** (TS-027). The callback only
-enqueues; the main thread writes.
+**The ORM cannot run in the roslibpy callback** (TS-027).
 
-**`point_from_latlon` rejects anything outside Kenya.** Its default region is the
-inversion tripwire. Fixes outside it are skipped as `out_of_region`. This
-**will reject every fix in Rabat** — see open items.
+**`point_from_latlon` rejects anything outside Kenya** — every Rabat fix would be
+`out_of_region`. See open items.
 
-**The M8N talks `$GN`, not `$GP`.** Multi-constellation talker IDs. The node
-accepts both `$GPGGA` and `$GNGGA`.
+**Talker IDs differ by receiver.** The NEO-6M sends `$GPGGA`; the M8N sent
+`$GNGGA`. The node accepts both.
 
-**Stray sims interleave.** A second `nmea_sim` on the same pty produces two fix
-streams per second. `pkill -f nmea_sim.py` before starting one.
+**A wall halves the sky.** Satellites bunched on one side give HDOP in the tens
+and no fix, however long you wait. Move, don't wait.
+
+**`synchronized: no` ≠ wrong clock, and `date -u` twice in one shell compares
+nothing.** Check the Orin against the PC (separate terminals) or the GPS's UTC.
 
 ---
 
 ## Skip accounting
-
-Nothing is dropped silently. Every message ends in exactly one counter, printed
-on exit:
 
 | Counter | Meaning |
 |---|---|
@@ -199,15 +225,14 @@ on exit:
 
 ## Open items
 
-- **Real-sky sign-off** — replacement NEO-M8N on `/dev/ttyTHS1`, `--source live`,
-  rows verified in Postgres. The header-UART wiring has never carried a live
-  module end to end (TS-023/024).
-- **Rabat: add `--region`** to `ros_ingest` (a Morocco bbox, or `none`). Without
-  it the finale demo writes zero rows.
-- **Field clock.** Away from the PC's NAT there is no NTP, and the Orin's RTC
-  reads 1970. After a field reboot the clock resumes from its last saved value
-  and every fix fails the skew guard. Needs a set RTC or GPS-disciplined time.
-- Readings are lost while `ros_ingest` is not running; no robot-side buffer.
-- `ros_ingest` is a foreground command, not a supervised service (P5c).
-- Rows carry `mission=None`.
-- Robot deployment is manual `scp` (ADR-0014).
+- **Rabat: `--region`** on `ros_ingest`. Without it the finale writes zero rows.
+- **Field time.** No NTP away from the PC; the Orin has no running RTC and was
+  22 minutes slow on 2026-10-03. GPS UTC is the obvious field reference.
+- **Header UART undiagnosed** (TS-023). Lead theory: wired to the wrong row.
+  Five-minute loopback test at the exact positions used.
+- **Second FTDI adapter** for the PM sensor — this one is now the GPS's.
+- **Static `/etc/resolv.conf` must be verified across a reboot** (TS-025).
+- Fix quality is not carried into the row: no HDOP, no satellite count, and
+  `position_covariance` is published as unknown. Ground-truth claims need it.
+- No robot-side buffering; foreground command, not a service (P5c);
+  `mission=None`; manual `scp` deployment.

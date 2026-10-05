@@ -107,3 +107,70 @@ as text in Start Sequences (TS-025).
   Pass 1 spec's `STATUS_FIX` value, ingest code and robot-creation snippet
   (`status='online'` vs `Robot.Status.ONLINE`) are wrong — link to this doc
   rather than fixing the spec in place.
+
+---
+
+## Sign-off addendum — 2026-10-03
+
+F08 signed off: 22 `live` rows from a NEO-6M under open sky, verified by query.
+The carry-forwards above are superseded by the list at the end of this section.
+
+### What worked
+
+**Splitting the hardware the same way again.** With the header failing, three
+moves each changed one variable: GPS on header power with its TX read by the PC
+(not powered), GPS on cable power read by the PC (alive), GPS on cable power read
+by pin 10 (pin 10 deaf). Twenty minutes to two clean conclusions, with no
+guessing and no powered rewiring.
+
+**Taking the header out of the path instead of fixing it under deadline.** The
+FTDI cable had a driver on the Orin, was already proven with this GPS, and
+powered it from USB. The sign-off was the goal; the header became a logged
+carry-forward rather than an afternoon.
+
+**GPS UTC as the clock reference.** `timedatectl` said only "not synchronized".
+The GPS's GGA time said the Orin was 22 minutes slow. That is also the field
+answer to the open time problem.
+
+**The receiver refusing a bad fix.** Beside a wall it held 4 satellites with
+HDOP climbing past 45 and kept `qual=0`. A receiver that reported that position
+would have put plausible garbage in the database.
+
+### What went wrong
+
+**The header failed twice and is still undiagnosed.** Both modules, two
+sessions. The lead theory — wired to the odd (inner) row — explains every
+observation and has not been tested. Angled photos could not settle it either
+time.
+
+**TS-025's fix was wrong twice.** `resolved.conf` was never read; `resolvconf`'s
+`head` is never applied at boot. Both "worked" in-session, which is exactly why
+they weren't questioned until the next reboot. A fix for a boot-time problem
+isn't verified until it survives a boot.
+
+**Wrong guidance on three small things, each costing a round trip:** the genuine
+FTDI colour code (yellow = RX) for a cable whose RX is white; an `awk` pipeline
+that mawk block-buffers into a minute of silence; and two `date -u` commands in
+one block that got run in one shell, comparing the Orin with itself.
+
+### Carry-forwards (current)
+
+- **Rabat: `--region` on `ros_ingest`.** Zero rows in Morocco otherwise.
+- **Field time.** Discipline the Orin from GPS UTC, or RTC battery + `hwclock -w`.
+- **Header UART:** the exact-position loopback test (TS-023 addendum). If the
+  row theory holds, move the GPS back to the header and supersede the
+  ADR-0014 amendment.
+- **Verify the static `/etc/resolv.conf` survives a reboot** (TS-025).
+- **Second FTDI or CP2102 adapter** for the PM sensor.
+- **Fix quality isn't stored.** HDOP and satellite count are dropped, and the
+  node publishes `position_covariance` as unknown. This sign-off's fixes wandered
+  ~21 m while stationary; a ground-truth claim needs that number on the row.
+- `gps_node.py` defaults to `/dev/ttyTHS1`; the working port is passed by
+  parameter.
+- TS-021 still owed (F10 COG footprint bug); `analyze_covariance` BSI verdict;
+  `/mission` visual sign-off on `feat/orbbec-console`.
+- 24 `simulated` rows from 1b remain under `RANGER-PRIME-001` — labelled,
+  harmless.
+- Vault: Architecture Lockdown rows for ADR-0014 (with amendment) and ADR-0015;
+  Start Sequences gets the static `resolv.conf`, the PC-side `date -s` fallback,
+  and the fix-watch command.

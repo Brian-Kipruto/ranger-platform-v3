@@ -1,6 +1,6 @@
 # ADR-0014: Robot-side code lives in `robot/` in the platform repo; GPS on the Orin header UART
 
-- **Status:** Accepted
+- **Status:** Accepted — Decision 2 amended 2026-10-03 (GPS moved to FTDI USB; see Amendment)
 - **Date:** 2026-09-28
 - **Feature:** F08 (ROS bridge: GPS → SensorLog)
 - **Supersedes:** none
@@ -75,3 +75,30 @@ The UART is proven by loopback; the full header path with a live module was
 real-sky checkpoint must re-verify wiring first. Any future sensor behind a
 CH340 hits the same wall; CP2102 is the standing choice for USB-serial on the
 Orin.
+
+## Amendment (2026-10-03) — the GPS runs on FTDI USB, not the header UART
+
+At real-sky sign-off the header path failed again, this time with a NEO-6M
+proven on the PC the same day (TS-023 addendum): the GPS did not run on header
+power, and pin 10 received nothing even with the GPS powered from elsewhere and
+transmitting. The UART itself still passes loopback.
+
+The FTDI FT232R cable bought for the PM sensor was the escape: `0403:6001`,
+`ftdi_sio` bound on the Orin, and the GPS streamed immediately. F08 was signed
+off on it.
+
+| | Header UART (original Decision 2) | FTDI USB (now) |
+|---|---|---|
+| Driver | none needed | `ftdi_sio`, ships with JetPack 6.2.2 |
+| Device name | `/dev/ttyTHS1`, fixed | `/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AZ6YQ8AI-if00-port0`, fixed |
+| GPS power | header 5 V — **not working** | cable 5 V from USB — proven |
+| Status | passes loopback, never carried live NMEA | signed off: 22 `live` rows |
+
+**Consequences.** The GPS occupies the FTDI cable, so the PM sensor needs a
+second FTDI (or CP2102) adapter. The by-id path ties the configuration to this
+cable's serial number (`AZ6YQ8AI`); a replacement cable changes the path.
+`gps_node.py`'s default `port` is still `/dev/ttyTHS1`, so the by-id path must be
+passed as a parameter until the header question is settled one way or the other.
+The header UART is not abandoned: it is undiagnosed. If the wrong-row theory in
+TS-023 is confirmed, the header becomes the preferred path again — no USB, no
+adapter to lose — and this amendment should be superseded.
