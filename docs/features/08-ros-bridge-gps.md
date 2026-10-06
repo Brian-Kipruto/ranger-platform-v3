@@ -135,8 +135,8 @@ server time.
 bash ~/jetson-internet.sh
 # Orin: compare against a real reference, not just the sync flag
 date -u          # vs the PC's date -u (in a PC terminal), or vs the GPS's GGA time
-# If off, set it from the PC — in a PC terminal:
-ssh -t brian@192.168.55.1 "sudo date -s @$(date +%s)"
+# If off, set it from the PC — in a PC terminal (corrected 2026-10-06, TS-029):
+ssh -t brian@192.168.55.1 "u0=\$(cut -d' ' -f1 /proc/uptime); sudo -v; u1=\$(cut -d' ' -f1 /proc/uptime); sudo date -s @\$(python3 -c \"print($(date +%s.%N)+\$u1-\$u0)\")"
 ```
 
 **Watch for a fix before starting the node** (Orin):

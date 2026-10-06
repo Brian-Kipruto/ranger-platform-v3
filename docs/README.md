@@ -42,6 +42,8 @@ One markdown file per feature/phase, documenting end-to-end implementation. Each
 - [`07-dashboard-fieldmap-retrospective.md`](./features/07-dashboard-fieldmap-retrospective.md) — what worked, the blank-map flexbox trap, the truncated-paste red herring, the logout regression, carry-forwards
 - [`08-ros-bridge-gps.md`](./features/08-ros-bridge-gps.md) — first robot-side code: `robot/gps_node.py` (NMEA → `NavSatFix` on `/fix`), `nmea_sim` over a socat pty, and `ros_ingest` writing `SensorLog` via rosbridge with a `--source` flag defaulting to `simulated`; signed off 2026-10-03 with 22 `live` rows from a NEO-6M on FTDI USB (HDOP ~3, ~21 m stationary jitter)
 - [`08-ros-bridge-gps-retrospective.md`](./features/08-ros-bridge-gps-retrospective.md) — what worked, the plan that assumed untested hardware, the destroyed module, the stale handoff, the `App.tsx` regression found during WIP cleanup; sign-off addendum: one-variable hardware splits, GPS UTC as clock reference, a DNS fix wrong twice; carry-forwards including `--region` for Rabat and field time
+- [`09-live-console.md`](./features/09-live-console.md) — first WebSocket: `ros_ingest` broadcasts each saved `SensorLog` to an org-scoped Channels group; `DashboardConsumer` authenticates via `Sec-WebSocket-Protocol`; the Dashboard blip moves in ~0.7 s, grey `SIM` / green `LIVE` by provenance, red `STALE` after 5 s; survives Redis outages without losing a row
+- [`09-live-console-retrospective.md`](./features/09-live-console-retrospective.md) — what worked, the clock fallback that set the Orin 12 s behind, build-clean-but-dev-broken, three rounds of hand-edit damage and hashes as the cure, carry-forwards
 - [`10-1-postgis-foundation.md`](./features/10-1-postgis-foundation.md) — F10 epic, sub-feature 1: PostGIS + GeoDjango, geometry as source of truth on SensorLog/Waypoint, Mission AOI, expand→migrate→contract migrations, contract-diff verification, first pytest suite
 - [`10-1-postgis-foundation-retrospective.md`](./features/10-1-postgis-foundation-retrospective.md) — what worked, the passing-checks-with-wrong-ENGINE trap, the ROS/pytest collision, the file-rename friction, carry-forwards to F10.2
 - [`10-2-gee-integration.md`](./features/10-2-gee-integration.md) — F10 epic, sub-feature 2: Earth Engine client, 10-dataset catalog, four provenance tiers, 12,081 modelled Marsabit points, clipped COG retrieval with PostGIS-asserted footprints, seven org-scoped read endpoints
@@ -56,7 +58,7 @@ Architecture Decision Records (ADRs). Short, dated records of important technica
 - [`0002-multi-tenant-via-organization-fk.md`](./decisions/0002-multi-tenant-via-organization-fk.md) — Why we use a shared schema with `organization` FK, and Django Groups instead of a `role` enum
 - [`0003-refresh-token-storage.md`](./decisions/0003-refresh-token-storage.md) — Refresh token in httpOnly SameSite=Strict cookie; access token in memory + localStorage mirror
 - [`0004-token-blacklist-on-logout.md`](./decisions/0004-token-blacklist-on-logout.md) — Enable simplejwt blacklist + rotation so logout actually invalidates server-side
-- [`0005-auth-feature-known-gaps.md`](./decisions/0005-auth-feature-known-gaps.md) — Deferred-work register: 15 items the auth feature did NOT ship that need closing before production
+- [`0005-auth-feature-known-gaps.md`](./decisions/0005-auth-feature-known-gaps.md) — Deferred-work register: 18 items (17–18 added by F09) the auth feature did NOT ship that need closing before production
 - [`0006-sensorlog-tenancy-through-robot.md`](./decisions/0006-sensorlog-tenancy-through-robot.md) — Why SensorLog inherits tenancy through Robot instead of carrying its own organization FK
 - [`0007-data-explorer-authenticated-only.md`](./decisions/0007-data-explorer-authenticated-only.md) — Why Feature 05 ships authenticated-only and defers custom-permission enforcement to a later feature
 - [`0008-design-tokens-and-console-shell.md`](./decisions/0008-design-tokens-and-console-shell.md) — Tailwind v4 @theme tokens + :root runtime accent, retrofit-first adoption, color-mix derivations, group-keyed role nav shaped for RBAC
@@ -68,6 +70,8 @@ Architecture Decision Records (ADRs). Short, dated records of important technica
 - [`0013-raster-delivery-and-layer-semantics.md`](./decisions/0013-raster-delivery-and-layer-semantics.md) — PNG rendered from our own COGs rather than expiring GEE tile URLs or a tile server overbuilt for 300 m sites; a layer is a `(dataset, layer)` pair with declared calibration, because an additive offset does not cancel in a normalised ratio and Landsat NDVI from raw DNs renders convincingly and wrong; captions state what each number is NOT; provenance summaries computed on the uncapped set
 - [`0014-robot-code-in-repo-gps-on-header-uart.md`](./decisions/0014-robot-code-in-repo-gps-on-header-uart.md) — robot code in `robot/` beside the platform as plain `rclpy` scripts (not a separate repo, not yet a colcon package); GPS planned for the header UART because JetPack 6.2.2 ships no CH340 driver — **amended 2026-10-03**: the header never carried live NMEA, GPS runs on an FTDI cable via its `/dev/serial/by-id/` path
 - [`0015-ros-ingest-provenance-timestamps-threading.md`](./decisions/0015-ros-ingest-provenance-timestamps-threading.md) — `--source` defaults to `simulated` (not derived from the robot's frame_id); robot header stamps guarded by a clock-skew check; gate on fix status because NaN arrives as `null`; every skip counted; callback enqueues, main thread writes
+- [`0016-live-console-websocket-auth.md`](./decisions/0016-live-console-websocket-auth.md) — access token in `Sec-WebSocket-Protocol` (query string rejected: logged), connect-time auth, one group per org joined before accept, 4401/4403 sent after accept so the browser sees them
+- [`0017-live-broadcast-explicit-helper.md`](./decisions/0017-live-broadcast-explicit-helper.md) — explicit `broadcast_sensorlog()` not `post_save`; payload from the saved row; broadcast failure counted, never fatal, no replay; provenance decides the blip, not the transport
 
 ### `analysis/`
 Findings produced BY the platform, with method and limits stated. Distinct from `features/` (what we built) and `decisions/` (why we built it that way).
@@ -103,6 +107,9 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 - [`025-orin-clock-unsynced-no-dns.md`](./troubleshooting/025-orin-clock-unsynced-no-dns.md) — Orin clock wrong because DNS fails over the USB NAT: `/etc/resolv.conf` symlinks into `/run` and nothing regenerates it at boot, so two earlier fixes only worked in-session; static file is the fix, `ssh … sudo date -s` from the PC the fallback, GPS UTC the field reference
 - [`026-brltty-claims-ch340.md`](./troubleshooting/026-brltty-claims-ch340.md) — `/dev/ttyUSB0` appears and vanishes on Ubuntu 22.04 because `brltty` claims the CH340; `apt remove brltty`
 - [`027-roslibpy-callback-synchronous-only-operation.md`](./troubleshooting/027-roslibpy-callback-synchronous-only-operation.md) — `ros_ingest` receives every fix and writes nothing: roslibpy callbacks run on the Twisted reactor thread, where Django raises `SynchronousOnlyOperation`; enqueue in the callback, write on the main thread
+- [`028-db-connections-in-channels-and-command-tests.md`](./troubleshooting/028-db-connections-in-channels-and-command-tests.md) — async consumer tests need `transaction=True` plus a fixture that closes the worker thread's connection; `close_old_connections()` inside a test transaction kills the connection
+- [`029-orin-clock-set-behind-by-sudo-prompt.md`](./troubleshooting/029-orin-clock-set-behind-by-sudo-prompt.md) — TS-025's `ssh … sudo date -s @$(date +%s)` set the Orin 12 s behind: the timestamp expands before the sudo prompt; corrected command and a ±0.14 s offset measurement
+- [`030-cjs-package-not-a-function-in-vite-dev.md`](./troubleshooting/030-cjs-package-not-a-function-in-vite-dev.md) — `useWebSocket is not a function` under `npm run dev`, clean build: CJS-only package's default export interops differently in Vite dev; replaced with native `WebSocket`
 
 ---
 
@@ -126,4 +133,4 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 
 ---
 
-*Last updated: 2026-10-03*
+*Last updated: 2026-10-06*

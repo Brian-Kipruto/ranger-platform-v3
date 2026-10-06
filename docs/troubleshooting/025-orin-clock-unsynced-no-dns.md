@@ -75,14 +75,18 @@ sleep 15; timedatectl | grep -E 'Local|synchronized'
 **Not yet verified across a reboot.** Until it is, check `ping google.com` first
 thing after every boot.
 
-**Fallback when NTP isn't available** — set the Orin from the PC, accurate to
-about a second, which is enough for the skew guard. Run it **in a PC terminal**:
+**Fallback when NTP isn't available** — set the Orin from the PC. Run it **in a
+PC terminal**:
 
 ```bash
-ssh -t brian@192.168.55.1 "sudo date -s @$(date +%s)"
+ssh -t brian@192.168.55.1 "u0=\$(cut -d' ' -f1 /proc/uptime); sudo -v; u1=\$(cut -d' ' -f1 /proc/uptime); sudo date -s @\$(python3 -c \"print($(date +%s.%N)+\$u1-\$u0)\")"
 ```
 
-This is how F08 was signed off.
+*Corrected 2026-10-06 (TS-029).* The original one-liner,
+`sudo date -s @$(date +%s)`, expands the PC timestamp before the sudo password
+prompt, so it set the Orin behind by however long the password took — 12 s on
+2026-10-06. Enough for the 120 s skew guard, which is how F08 was signed off
+with it; not enough for F09's < 1 s latency check.
 
 The NAT itself (`~/jetson-internet.sh` on the PC, `wlo1` → `enxe2b7eee57fe4`;
 check `ip -br link`) resets on every PC reboot and must be re-run before the

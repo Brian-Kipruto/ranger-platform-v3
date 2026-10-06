@@ -91,6 +91,16 @@ Rough back-of-envelope: 100 users × daily login × ~30 rotations per session ×
 
 *Becomes blocking when:* table size is noticeable operationally, or first production deploy (run as a daily Celery beat task — see V3 spec's Celery integration in Phase 8). For now: run manually if the dev DB feels cluttered.
 
+### Live console gaps (F09, added 2026-10-06)
+
+**17. WebSocket auth is connect-time only**
+`/ws/dashboard/` validates the access token in `connect()` and never again (ADR-0016). An open socket outlives its 15-minute token and is not closed by logout elsewhere or a blacklisted refresh token. The client reconnects on token refresh, but nothing forces a hostile client to.
+*Becomes blocking when:* first deploy. Fix options: close each socket at its token's `exp` (a timer in the consumer), or a short-lived single-use ticket endpoint.
+
+**18. WebSocket behind nginx — not configured**
+Dev uses Vite's `/ws` proxy and plain `ws://`. Production needs nginx `Upgrade`/`Connection` headers, `wss://` under #11, and the token-bearing `Sec-WebSocket-Protocol` header kept out of any header logging.
+*Becomes blocking when:* first deploy. Same day as #11.
+
 ## Decision
 
 These are deferred. The auth feature shipped is "dev-grade complete and architecturally sound." Production-grade requires the items above.
