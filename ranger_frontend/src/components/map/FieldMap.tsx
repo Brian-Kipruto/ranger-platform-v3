@@ -50,7 +50,11 @@ export interface FieldMapBlip {
   id: string
   lng: number
   lat: number
-  status: "live" | "mqtt" | "offline" | "idle"
+  // ─── RANGER V3 START: 09-live-console ───
+  // "sim": a live-pushed position whose provenance is simulated (F09). Never
+  // rendered as "live": no green, no ping ring.
+  status: "live" | "sim" | "mqtt" | "offline" | "idle"
+  // ─── RANGER V3 END: 09-live-console ───
 }
 
 /** Bottom-left telemetry readout content (dashboard). Rendered in CP3. */
@@ -210,6 +214,9 @@ function trackStrokeWidthExpression() {
 
 const BLIP_COLOR: Record<FieldMapBlip["status"], string> = {
   live: "#4be08a",
+  // ─── RANGER V3 START: 09-live-console ───
+  sim: "#7a828f", // = SOURCE_META.simulated.color, same as the track tier
+  // ─── RANGER V3 END: 09-live-console ───
   mqtt: "#f5a623",
   offline: "#ff5d5d",
   idle: "#36c5f0",
@@ -296,6 +303,12 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
   const highlightMarker = useRef<maplibregl.Marker | null>(null)
   // Blip markers keyed by robot id, so we can diff/update/remove on change.
   const blipMarkers = useRef<Map<string, maplibregl.Marker>>(new Map())
+  // ─── RANGER V3 START: 09-live-console ───
+  // Per-marker render signature (status|selected). A live position arrives
+  // at ~1 Hz; rebuilding the element each time would restart the ping
+  // animation before it ever completes. Same signature → just move it.
+  const blipSigs = useRef<Map<string, string>>(new Map())
+  // ─── RANGER V3 END: 09-live-console ───
   const [mapReady, setMapReady] = useState(false)
   // Fullscreen expand (CP3). map.resize() is called after the size change.
   const [expanded, setExpanded] = useState(false)
@@ -547,12 +560,22 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
       if (!next.has(id)) {
         marker.remove()
         registry.delete(id)
+        blipSigs.current.delete(id) // 09-live-console
       }
     }
 
     // add or update
     for (const blip of next.values()) {
       const selected = blip.id === selectedBlipId
+      // ─── RANGER V3 START: 09-live-console ───
+      const sig = `${blip.status}|${selected}`
+      const current = registry.get(blip.id)
+      if (current && blipSigs.current.get(blip.id) === sig) {
+        current.setLngLat([blip.lng, blip.lat])
+        continue
+      }
+      blipSigs.current.set(blip.id, sig)
+      // ─── RANGER V3 END: 09-live-console ───
       const el = buildBlipEl(blip, selected)
       el.addEventListener("click", (e) => {
         e.stopPropagation()
@@ -573,9 +596,11 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
   // ── clean up all blip markers on unmount ──
   useEffect(() => {
     const registry = blipMarkers.current
+    const sigs = blipSigs.current // 09-live-console
     return () => {
       for (const marker of registry.values()) marker.remove()
       registry.clear()
+      sigs.clear() // 09-live-console
     }
   }, [])
 

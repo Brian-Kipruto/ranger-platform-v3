@@ -5,7 +5,7 @@
  */
 import { cn } from "@/lib/utils"
 
-type Status = "ok" | "warn" | "alert" | "info" | "accent"
+type Status = "ok" | "warn" | "alert" | "info" | "accent" | "sim" // sim: 09-live-console
 
 const colorVar: Record<Status, string> = {
   ok: "var(--color-ok)",
@@ -13,6 +13,7 @@ const colorVar: Record<Status, string> = {
   alert: "var(--color-alert)",
   info: "var(--color-info)",
   accent: "var(--accent)",
+  sim: "#7a828f", // 09-live-console: = SOURCE_META.simulated.color
 }
 
 interface StatusDotProps {

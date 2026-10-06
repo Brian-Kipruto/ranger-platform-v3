@@ -22,8 +22,9 @@ export interface FleetRow {
   status: FieldMapBlip["status"] // DEMO
 }
 
-const STATUS_DOT: Record<FieldMapBlip["status"], "ok" | "warn" | "alert" | "info"> = {
+const STATUS_DOT: Record<FieldMapBlip["status"], "ok" | "warn" | "alert" | "info" | "sim"> = {
   live: "ok",
+  sim: "sim", // 09-live-console
   mqtt: "warn",
   offline: "alert",
   idle: "info",
@@ -31,6 +32,7 @@ const STATUS_DOT: Record<FieldMapBlip["status"], "ok" | "warn" | "alert" | "info
 
 const STATUS_COLOR: Record<FieldMapBlip["status"], string> = {
   live: "var(--color-ok)",
+  sim: "#7a828f", // 09-live-console: = SOURCE_META.simulated.color
   mqtt: "var(--color-warn)",
   offline: "var(--color-alert)",
   idle: "var(--color-info)",
