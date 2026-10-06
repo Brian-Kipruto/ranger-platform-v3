@@ -127,6 +127,19 @@ received NMEA from a live module; see TS-023.
 
 ## Running it
 
+**Normally one command on the PC** (added 2026-10-06, after F09):
+
+```bash
+scripts/dev_up.sh          # sim · or: scripts/dev_up.sh live
+```
+
+It checks the Orin link, NAT and DNS, sets the Orin clock to within 0.5 s
+(TS-029), brings up Postgres and Redis, and starts the Orin stack over ssh in a
+tmux session via `robot/tools/stack_up.sh`, which waits for rosbridge and
+confirms `/fix` is publishing. It then prints the PC commands to run. Inspect
+the Orin windows with `ssh -t brian@192.168.55.1 tmux attach -t ranger`. The
+manual steps below are the fallback and what the scripts do.
+
 **Once per boot — clock first.** `ros_ingest` skips fixes more than 120 s from
 server time.
 

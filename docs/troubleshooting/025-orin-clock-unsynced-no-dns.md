@@ -92,6 +92,24 @@ The NAT itself (`~/jetson-internet.sh` on the PC, `wlo1` → `enxe2b7eee57fe4`;
 check `ip -br link`) resets on every PC reboot and must be re-run before the
 Orin has any internet at all.
 
+## Addendum — 2026-10-06
+
+The Orin had rebooted (its clock was found 2.9 days behind) and DNS failed
+again. Whether `/etc/resolv.conf` was back to a symlink was not recorded, so it
+is unknown whether the 2026-10-03 static file was lost at boot or never
+applied. The static-file fix was re-applied:
+
+```
+$ ping -c 2 google.com   → resolves
+$ scripts/dev_up.sh      → ok: NAT up (1.1.1.1 reachable) · ok: DNS resolves
+```
+
+**Still not verified across a reboot.** `scripts/dev_up.sh` now checks routing
+(`1.1.1.1`) and naming (`google.com`) separately on every start, and only runs
+`jetson-internet.sh` for a routing failure, so the next reboot will show whether
+it held. The clock no longer depends on it: the script sets the Orin from the PC
+when NTP hasn't.
+
 ## Prevention
 
 - Check connectivity by **name**: `ping -c 2 google.com`. `8.8.8.8` hides this.

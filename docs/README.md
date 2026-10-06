@@ -78,6 +78,9 @@ Findings produced BY the platform, with method and limits stated. Distinct from 
 
 - [`A01-vegetation-index-vs-gamma-dose.md`](./analysis/A01-vegetation-index-vs-gamma-dose.md) — tested whether NDVI/BSI explain gamma dose variance across the seven KNRA sites; they do not (rho +0.39 and +0.18, n=7, threshold 0.786), and the sign is opposite to soil-water attenuation. Variance appears lithological — Forole carries ~7x Boji's ⁴⁰K. Includes the rule F10.4 must follow: correlation only against `live`/`reported` tiers, never `modelled`
 
+### `scripts/` (repo root)
+- `scripts/dev_up.sh [sim|live]` — one-command dev start: Orin link, NAT/DNS, Orin clock (TS-029), Postgres + Redis, Orin stack over ssh via `robot/tools/stack_up.sh`; prints the PC commands. See F08 → Running it.
+
 ### `troubleshooting/`
 Error logs and fixes. Each entry records: what we saw, what caused it, how we fixed it, how to prevent it.
 
@@ -104,12 +107,13 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 - [`022-ch340-no-driver-on-jetpack.md`](./troubleshooting/022-ch340-no-driver-on-jetpack.md) — CH340 enumerates on the Orin but never becomes `/dev/ttyUSB*`: `lsusb -t` shows `Driver=` empty, JetPack 6.2.2 ships no `ch341.ko`; moved to header UART, proven by one-wire loopback
 - [`023-gps-tx-rx-not-crossed.md`](./troubleshooting/023-gps-tx-rx-not-crossed.md) — GPS silent on the header: solid `0x00` means the RX line is held low; TX/RX must cross. Addendum 2026-10-03: failed again with a proven module — no power from the header and pin 10 deaf; lead theory is the wrong (odd) row, settling loopback test not yet run
 - [`024-reversed-polarity-killed-gps.md`](./troubleshooting/024-reversed-polarity-killed-gps.md) — NEO-M8N destroyed by a few seconds of reversed supply while rewiring powered; power off, count pins by touch, keep spares
-- [`025-orin-clock-unsynced-no-dns.md`](./troubleshooting/025-orin-clock-unsynced-no-dns.md) — Orin clock wrong because DNS fails over the USB NAT: `/etc/resolv.conf` symlinks into `/run` and nothing regenerates it at boot, so two earlier fixes only worked in-session; static file is the fix, `ssh … sudo date -s` from the PC the fallback, GPS UTC the field reference
+- [`025-orin-clock-unsynced-no-dns.md`](./troubleshooting/025-orin-clock-unsynced-no-dns.md) — *(addendum 2026-10-06: DNS failed again after a reboot; static file re-applied, still unverified across a reboot)* Orin clock wrong because DNS fails over the USB NAT: `/etc/resolv.conf` symlinks into `/run` and nothing regenerates it at boot, so two earlier fixes only worked in-session; static file is the fix, `ssh … sudo date -s` from the PC the fallback, GPS UTC the field reference
 - [`026-brltty-claims-ch340.md`](./troubleshooting/026-brltty-claims-ch340.md) — `/dev/ttyUSB0` appears and vanishes on Ubuntu 22.04 because `brltty` claims the CH340; `apt remove brltty`
 - [`027-roslibpy-callback-synchronous-only-operation.md`](./troubleshooting/027-roslibpy-callback-synchronous-only-operation.md) — `ros_ingest` receives every fix and writes nothing: roslibpy callbacks run on the Twisted reactor thread, where Django raises `SynchronousOnlyOperation`; enqueue in the callback, write on the main thread
 - [`028-db-connections-in-channels-and-command-tests.md`](./troubleshooting/028-db-connections-in-channels-and-command-tests.md) — async consumer tests need `transaction=True` plus a fixture that closes the worker thread's connection; `close_old_connections()` inside a test transaction kills the connection
 - [`029-orin-clock-set-behind-by-sudo-prompt.md`](./troubleshooting/029-orin-clock-set-behind-by-sudo-prompt.md) — TS-025's `ssh … sudo date -s @$(date +%s)` set the Orin 12 s behind: the timestamp expands before the sudo prompt; corrected command and a ±0.14 s offset measurement
 - [`030-cjs-package-not-a-function-in-vite-dev.md`](./troubleshooting/030-cjs-package-not-a-function-in-vite-dev.md) — `useWebSocket is not a function` under `npm run dev`, clean build: CJS-only package's default export interops differently in Vite dev; replaced with native `WebSocket`
+- [`031-ros2-topic-echo-untyped-exits-before-discovery.md`](./troubleshooting/031-ros2-topic-echo-untyped-exits-before-discovery.md) — `stack_up.sh`'s `/fix` check failed on a healthy stack: untyped `ros2 topic echo` exits before discovery resolves the type; pass `sensor_msgs/msg/NavSatFix`
 
 ---
 

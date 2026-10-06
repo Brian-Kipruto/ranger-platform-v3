@@ -115,14 +115,15 @@ Row 24702, values rounded:
 
 ## Running it
 
-Start the Orin stack and `ros_ingest` as in [F08](./08-ros-bridge-gps.md#running-it)
-— clock first, with the corrected fallback (TS-029). Then on the PC:
-
 ```bash
-docker compose up -d && docker exec ranger_redis redis-cli ping   # PONG
+scripts/dev_up.sh        # PC: Orin clock + stack, Postgres + Redis; prints the next three
 cd ranger_backend && python manage.py runserver                   # banner: Daphne
+cd ranger_backend && python manage.py ros_ingest
 cd ranger_frontend && npm run dev                                 # http://localhost:5173
 ```
+
+Manual fallback: [F08 → Running it](./08-ros-bridge-gps.md#running-it), then
+`docker compose up -d` and the three commands above.
 
 Debug socket without the frontend — DevTools console on `http://localhost:8000/admin/`:
 
