@@ -20,7 +20,6 @@ import threading
 import time
 from collections import Counter
 from datetime import datetime, timezone as dt_tz
-import math
 import queue
 import roslibpy
 from django.core.management.base import BaseCommand, CommandError
@@ -29,6 +28,9 @@ from django.utils import timezone
 
 from core.geo import point_from_latlon
 from core.models import Robot, SensorLog
+# ─── RANGER V3 START: 09-live-console ───
+from ros_bridge.broadcast import broadcast_sensorlog
+# ─── RANGER V3 END: 09-live-console ───
 
 ROS_SOURCES = (SensorLog.Source.SIMULATED, SensorLog.Source.LIVE)
 
@@ -62,6 +64,9 @@ class Command(BaseCommand):
         self.max_skew = opts["max_skew"]
         self.note = f"ros_bridge {opts['topic']} via rosbridge {opts['host']}:{opts['port']}"
         self.counts = Counter()
+        # ─── RANGER V3 START: 09-live-console ───
+        self.broadcast_up = True
+        # ─── RANGER V3 END: 09-live-console ───
         self.lock = threading.Lock()
         self.inbox = queue.Queue(maxsize=1000)
 
@@ -148,4 +153,25 @@ class Command(BaseCommand):
         )
         self._count("saved")
         self.stdout.write(f"SensorLog #{log.pk}: {lat:.6f}, {lon:.6f} [{self.source}] @ {ts:%H:%M:%S}Z")
+        # ─── RANGER V3 START: 09-live-console ───
+        self._broadcast(log)
+
+    def _broadcast(self, log):
+        """The DB row is the record; the socket is a view of it. A failed
+        broadcast (Redis down) is counted, never fatal, and logged only on a
+        state change so a dead Redis doesn't flood the terminal at 1 Hz.
+        Invariant at Ctrl-C: saved == broadcast + broadcast_error."""
+        try:
+            broadcast_sensorlog(log)
+        except Exception as exc:
+            self._count("broadcast_error")
+            if self.broadcast_up:
+                self.broadcast_up = False
+                self.stderr.write(f"broadcast DOWN (rows still saving): {exc!r}")
+            return
+        self._count("broadcast")
+        if not self.broadcast_up:
+            self.broadcast_up = True
+            self.stderr.write("broadcast recovered")
+        # ─── RANGER V3 END: 09-live-console ───
 # ─── RANGER V3 END: 08-gps-ingest ───
