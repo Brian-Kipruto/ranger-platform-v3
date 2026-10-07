@@ -4,6 +4,7 @@ Subscribe to /fix on the robot via rosbridge; write one SensorLog per fix.
 
     python manage.py ros_ingest                  # source=simulated (default)
     python manage.py ros_ingest --source live    # ONLY with a real receiver under sky
+    python manage.py ros_ingest --region rabat   # F11: guard box other than Kenya
 
 Provenance: --source defaults to SIMULATED, the weakest tier a ROS feed can
 carry. LIVE must be passed deliberately. A forgotten flag under-claims; it
@@ -13,7 +14,8 @@ Skips (counted, never stored):
   no_fix        NavSatStatus < 0
   no_coords     lat/lon null — rosbridge sends NaN as JSON null
   clock_skew    robot stamp far from server time (unsynced Orin clock)
-  out_of_region point_from_latlon's Kenya tripwire (catches lat/lon inversion)
+  out_of_region point_from_latlon's region tripwire (catches lat/lon inversion);
+                --region picks the box, default kenya, "none" disables it (loudly)
 """
 import math
 import threading
@@ -27,6 +29,9 @@ from django.db import close_old_connections
 from django.utils import timezone
 
 from core.geo import point_from_latlon
+# ─── RANGER V3 START: 11-ingest-region ───
+from core.geo import REGION_CHOICES, REGION_NONE, resolve_region
+# ─── RANGER V3 END: 11-ingest-region ───
 from core.models import Robot, SensorLog
 # ─── RANGER V3 START: 09-live-console ───
 from ros_bridge.broadcast import broadcast_sensorlog
@@ -52,8 +57,25 @@ class Command(BaseCommand):
             "--max-skew", type=float, default=120.0,
             help="Reject fixes whose robot stamp differs from server time by more than N seconds.",
         )
+        # ─── RANGER V3 START: 11-ingest-region ───
+        parser.add_argument(
+            "--region", choices=REGION_CHOICES, default="kenya",
+            help="Sanity box every fix must fall inside (inversion tripwire). "
+                 "'none' disables it — escape hatch only.",
+        )
+        # ─── RANGER V3 END: 11-ingest-region ───
 
     def handle(self, *args, **opts):
+        # ─── RANGER V3 START: 11-ingest-region ───
+        # Resolved before anything else: an unknown name must stop the command
+        # before it touches the DB or the network, never fall through to Kenya.
+        # (call_command(region=...) bypasses argparse choices, so check here too.)
+        try:
+            self.region = resolve_region(opts["region"])
+        except ValueError as exc:
+            raise CommandError(str(exc))
+        self.region_name = opts["region"]
+        # ─── RANGER V3 END: 11-ingest-region ───
         try:
             robot = Robot.objects.get(robot_id_str=opts["robot"])
         except Robot.DoesNotExist:
@@ -63,6 +85,14 @@ class Command(BaseCommand):
         self.source = opts["source"]
         self.max_skew = opts["max_skew"]
         self.note = f"ros_bridge {opts['topic']} via rosbridge {opts['host']}:{opts['port']}"
+        # ─── RANGER V3 START: 11-ingest-region ───
+        self.note += f" · region={self.region_name}"
+        if self.region_name == REGION_NONE:
+            self.stderr.write(
+                "WARNING: --region none — the inversion tripwire is OFF. "
+                "Swapped lat/lon WILL be saved. Escape hatch only."
+            )
+        # ─── RANGER V3 END: 11-ingest-region ───
         self.counts = Counter()
         # ─── RANGER V3 START: 09-live-console ───
         self.broadcast_up = True
@@ -80,7 +110,7 @@ class Command(BaseCommand):
         topic.subscribe(self.on_fix)
         self.stdout.write(
             f"Connected. {opts['topic']} -> SensorLog for {robot.robot_id_str} "
-            f"(source={self.source}). Ctrl-C to stop."
+            f"(source={self.source}, region={self.region_name}). Ctrl-C to stop."
         )
 
         connected = True
@@ -138,7 +168,7 @@ class Command(BaseCommand):
             return self._count("clock_skew")
 
         try:
-            point = point_from_latlon(lat=lat, lon=lon)
+            point = point_from_latlon(lat=lat, lon=lon, region=self.region)  # F11
         except ValueError as exc:
             self.stderr.write(f"skip: {exc}")
             return self._count("out_of_region")

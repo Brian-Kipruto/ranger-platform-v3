@@ -12,6 +12,7 @@ from collections import Counter
 
 import pytest
 
+from core.geo import KENYA_BBOX
 from core.models import SensorLog
 from ros_bridge.management.commands import ros_ingest as mod
 
@@ -43,6 +44,7 @@ def cmd(robot):
     c.source = SensorLog.Source.SIMULATED
     c.max_skew = 120.0
     c.note = "test"
+    c.region = KENYA_BBOX  # F11: _ingest reads the resolved region
     c.counts = Counter()
     c.lock = threading.Lock()
     c.broadcast_up = True
