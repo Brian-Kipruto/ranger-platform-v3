@@ -95,9 +95,8 @@ instead of a silent nothing.
 
 ## Open items carried forward
 
-- **`--region` for Rabat.** `point_from_latlon` defaults to the Kenya box; every
-  fix at the Rabat finale would be `out_of_region`. Add a `--region` flag (named
-  box or `none`) before the demo.
+- ~~**`--region` for Rabat.**~~ Closed by F11: `--region {kenya,rabat,none}`,
+  default `kenya`, stamped in `provenance_note` (ADR-0018).
 - **Field time.** RTC or GPS-disciplined clock, or Decision 2 blocks all field
   ingest after an offline reboot.
 - No robot-side buffering: fixes published while `ros_ingest` is down are lost.

@@ -208,8 +208,8 @@ since F10.1. Writes go through `point_from_latlon(lat=…, lon=…)`.
 
 **The ORM cannot run in the roslibpy callback** (TS-027).
 
-**`point_from_latlon` rejects anything outside Kenya** — every Rabat fix would be
-`out_of_region`. See open items.
+**`point_from_latlon` rejects anything outside Kenya** by default — every Rabat
+fix would be `out_of_region`. *F11: `ros_ingest --region rabat` (ADR-0018).*
 
 **Talker IDs differ by receiver.** The NEO-6M sends `$GPGGA`; the M8N sent
 `$GNGGA`. The node accepts both.
@@ -238,7 +238,7 @@ nothing.** Check the Orin against the PC (separate terminals) or the GPS's UTC.
 
 ## Open items
 
-- **Rabat: `--region`** on `ros_ingest`. Without it the finale writes zero rows.
+- ~~**Rabat: `--region`** on `ros_ingest`.~~ Closed by F11 (ADR-0018).
 - **Field time.** No NTP away from the PC; the Orin has no running RTC and was
   22 minutes slow on 2026-10-03. GPS UTC is the obvious field reference.
 - **Header UART undiagnosed** (TS-023). Lead theory: wired to the wrong row.

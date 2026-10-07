@@ -50,6 +50,8 @@ One markdown file per feature/phase, documenting end-to-end implementation. Each
 - [`10-2-gee-integration-retrospective.md`](./features/10-2-gee-integration-retrospective.md) — what worked, the three stale-state traps, the warning that explained itself away, the frontend provenance gap, carry-forwards to F10.3
 - [`10-3-satellite-view.md`](./features/10-3-satellite-view.md) — F10 epic, sub-feature 3: provenance surfaced across the console, uncapped provenance summary on `/map-data/`, COG→PNG render endpoint with a per-(dataset, layer) calibration registry, scene-stretched ramps with a reported range, the Satellite Integration screen, and the ground sensor track drawn over the imagery
 - [`10-3-satellite-view-retrospective.md`](./features/10-3-satellite-view-retrospective.md) — what worked, the same count-vs-set bug three times, the `.distinct()` on an ordered queryset, the test whose right and wrong answers coincided, misreading `is_verified` off its name, carry-forwards to F10.4
+- [`11-ingest-region.md`](./features/11-ingest-region.md) — Rabat writes rows: named regions (`kenya`, `rabat`, loud `none`) in `core/geo.py`; `ros_ingest --region` stamped in `provenance_note`; `nmea_sim --site` with sign-derived hemispheres and a PC pynmea2 test of all four quadrants; `dev_up.sh sim|live rabat`; the Dashboard flies once to a robot's first live fix. Kenya default unchanged, swapped coordinates still caught
+- [`11-ingest-region-retrospective.md`](./features/11-ingest-region-retrospective.md) — what worked, the hash gate skipped on a wrong download path, a negative proof contaminated by a second ingest and re-proved by provenance, a `--help` probe that would have hung the Orin, carry-forwards
 
 ### `decisions/`
 Architecture Decision Records (ADRs). Short, dated records of important technical choices. Format: problem → options considered → decision → consequences.
@@ -72,6 +74,7 @@ Architecture Decision Records (ADRs). Short, dated records of important technica
 - [`0015-ros-ingest-provenance-timestamps-threading.md`](./decisions/0015-ros-ingest-provenance-timestamps-threading.md) — `--source` defaults to `simulated` (not derived from the robot's frame_id); robot header stamps guarded by a clock-skew check; gate on fix status because NaN arrives as `null`; every skip counted; callback enqueues, main thread writes
 - [`0016-live-console-websocket-auth.md`](./decisions/0016-live-console-websocket-auth.md) — access token in `Sec-WebSocket-Protocol` (query string rejected: logged), connect-time auth, one group per org joined before accept, 4401/4403 sent after accept so the browser sees them
 - [`0017-live-broadcast-explicit-helper.md`](./decisions/0017-live-broadcast-explicit-helper.md) — explicit `broadcast_sensorlog()` not `post_save`; payload from the saved row; broadcast failure counted, never fatal, no replay; provenance decides the blip, not the transport
+- [`0018-named-regions-and-ingest-region-flag.md`](./decisions/0018-named-regions-and-ingest-region-flag.md) — regions by name, never a typed bbox; Rabat box ±0.7° around the (placeholder) venue, not national; `--region` flag defaulting to `kenya` rather than a model field; `none` allowed but loud; simulator sites by name with hemispheres from the sign; Dashboard flies once to a robot's first live fix
 
 ### `analysis/`
 Findings produced BY the platform, with method and limits stated. Distinct from `features/` (what we built) and `decisions/` (why we built it that way).
@@ -79,7 +82,7 @@ Findings produced BY the platform, with method and limits stated. Distinct from 
 - [`A01-vegetation-index-vs-gamma-dose.md`](./analysis/A01-vegetation-index-vs-gamma-dose.md) — tested whether NDVI/BSI explain gamma dose variance across the seven KNRA sites; they do not (rho +0.39 and +0.18, n=7, threshold 0.786), and the sign is opposite to soil-water attenuation. Variance appears lithological — Forole carries ~7x Boji's ⁴⁰K. Includes the rule F10.4 must follow: correlation only against `live`/`reported` tiers, never `modelled`
 
 ### `scripts/` (repo root)
-- `scripts/dev_up.sh [sim|live]` — one-command dev start: Orin link, NAT/DNS, Orin clock (TS-029), Postgres + Redis, Orin stack over ssh via `robot/tools/stack_up.sh`; prints the PC commands. See F08 → Running it.
+- `scripts/dev_up.sh [sim|live] [nairobi|rabat]` — one-command dev start: Orin link, NAT/DNS, Orin clock (TS-029), Postgres + Redis, Orin stack over ssh via `robot/tools/stack_up.sh`; prints the PC commands, with `--region` matching the site (F11). See F08 → Running it.
 
 ### `troubleshooting/`
 Error logs and fixes. Each entry records: what we saw, what caused it, how we fixed it, how to prevent it.
@@ -114,6 +117,7 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 - [`029-orin-clock-set-behind-by-sudo-prompt.md`](./troubleshooting/029-orin-clock-set-behind-by-sudo-prompt.md) — TS-025's `ssh … sudo date -s @$(date +%s)` set the Orin 12 s behind: the timestamp expands before the sudo prompt; corrected command and a ±0.14 s offset measurement
 - [`030-cjs-package-not-a-function-in-vite-dev.md`](./troubleshooting/030-cjs-package-not-a-function-in-vite-dev.md) — `useWebSocket is not a function` under `npm run dev`, clean build: CJS-only package's default export interops differently in Vite dev; replaced with native `WebSocket`
 - [`031-ros2-topic-echo-untyped-exits-before-discovery.md`](./troubleshooting/031-ros2-topic-echo-untyped-exits-before-discovery.md) — `stack_up.sh`'s `/fix` check failed on a healthy stack: untyped `ros2 topic echo` exits before discovery resolves the type; pass `sensor_msgs/msg/NavSatFix`
+- [`032-concurrent-ros-ingest-double-writes.md`](./troubleshooting/032-concurrent-ros-ingest-double-writes.md) — rows appeared during an ingest run that saved nothing: a second `ros_ingest` was still running; nothing prevents two per robot (same region = every fix written twice); check `pgrep -af ros_ingest`, prove by `provenance_note`, not `max(id)`
 
 ---
 
@@ -137,4 +141,4 @@ Error logs and fixes. Each entry records: what we saw, what caused it, how we fi
 
 ---
 
-*Last updated: 2026-10-06*
+*Last updated: 2026-10-07*
