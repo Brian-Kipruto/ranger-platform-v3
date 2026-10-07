@@ -87,3 +87,46 @@ def polygon_from_bbox(min_lon: float, min_lat: float, max_lon: float, max_lat: f
     poly.srid = SRID_WGS84
     return poly
 # ─── RANGER V3 END: geospatial helpers ───
+
+
+# ─── RANGER V3 START: 11-ingest-region ───
+# Named regions for write paths that run outside Kenya (F11 — Rabat finale).
+# Callers pick a region by NAME, never by typed bbox: a hand-typed bbox can be
+# argument-order-wrong, which defeats the very tripwire it configures.
+# Every bbox is (min_lon, min_lat, max_lon, max_lat) — lon FIRST, like KENYA_BBOX.
+
+# Venue the Rabat box is centred on, as (lat, lon). PLACEHOLDER: Rabat city
+# centre until the AEOC venue is confirmed. When it is, update this AND
+# RABAT_BBOX; test_regions asserts the venue sits inside with margin.
+RABAT_VENUE = (34.02, -6.84)
+
+# Rabat–Salé–Kénitra scale, ±0.7° around RABAT_VENUE. Deliberately not a
+# national box: tighter is a sharper tripwire, and the platform has no
+# business encoding a national border.
+RABAT_BBOX = (-7.54, 33.32, -6.14, 34.72)
+
+REGIONS = {
+    "kenya": KENYA_BBOX,
+    "rabat": RABAT_BBOX,
+}
+
+# Escape hatch: skips the box check entirely. Allowed, never a default.
+REGION_NONE = "none"
+REGION_CHOICES = (*REGIONS, REGION_NONE)
+
+
+def resolve_region(name: str):
+    """Map a region name to its bbox, or None for "none".
+
+    Raises:
+        ValueError: on any unknown name. Never falls through to Kenya.
+    """
+    if name == REGION_NONE:
+        return None
+    try:
+        return REGIONS[name]
+    except (KeyError, TypeError):
+        raise ValueError(
+            f"Unknown region {name!r}; expected one of {', '.join(REGION_CHOICES)}"
+        ) from None
+# ─── RANGER V3 END: 11-ingest-region ───
