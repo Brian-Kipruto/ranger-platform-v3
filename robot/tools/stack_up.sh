@@ -9,8 +9,9 @@
 # Deploy (from the PC, repo root):
 #   scp robot/tools/stack_up.sh brian@192.168.55.1:~/ranger/
 # Run (on the Orin):
-#   ~/ranger/stack_up.sh [sim|live] [--fresh]   default: sim
+#   ~/ranger/stack_up.sh [sim|live] [--fresh] [--site nairobi|rabat]   default: sim, nairobi
 #     --fresh  kill any running session and stray stack processes first
+#     --site   where nmea_sim puts the fix (sim only; F11). Deploy nmea_sim.py with this.
 #   Normally started for you by scripts/dev_up.sh on the PC, over ssh.
 #   tmux attach -t ranger                 Ctrl-b n / p to switch windows, Ctrl-b d to detach
 #   tmux kill-session -t ranger           stop everything
@@ -19,7 +20,13 @@
 set -euo pipefail
 
 MODE="${1:-sim}"
-FRESH="${2:-}"
+# ─── RANGER V3 START: 11-ingest-region ───
+[ $# -gt 0 ] && shift
+FRESH=""
+SITE=nairobi
+SITE_GIVEN=0
+USAGE="usage: $0 [sim|live] [--fresh] [--site nairobi|rabat]"
+# ─── RANGER V3 END: 11-ingest-region ───
 SESSION=ranger
 DIR="$HOME/ranger"
 GPS_PORT_LIVE=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AZ6YQ8AI-if00-port0
@@ -36,17 +43,36 @@ fail() {
 
 case "$MODE" in
   sim|live) ;;
-  *) fail "usage: $0 [sim|live] [--fresh]" ;;
+  *) fail "$USAGE" ;;
 esac
-case "$FRESH" in
-  ""|--fresh) ;;
-  *) fail "usage: $0 [sim|live] [--fresh]" ;;
+# ─── RANGER V3 START: 11-ingest-region ───
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --fresh) FRESH=--fresh ;;
+    --site)  SITE="${2:-}"; SITE_GIVEN=1; [ $# -gt 1 ] && shift ;;
+    *) fail "$USAGE" ;;
+  esac
+  shift
+done
+case "$SITE" in
+  nairobi|rabat) ;;
+  *) fail "$USAGE" ;;
 esac
+[ "$MODE" = live ] && [ "$SITE_GIVEN" = 1 ] && fail "--site is sim-only: live takes its position from the receiver"
+# Marker read by scripts/dev_up.sh: a sim at another site must restart, not be kept.
+if [ "$MODE" = sim ]; then MARK="sim:$SITE"; else MARK=live; fi
+# ─── RANGER V3 END: 11-ingest-region ───
 command -v tmux >/dev/null || fail "tmux not installed: sudo apt install tmux"
 [ -f "$DIR/gps_node.py" ] || fail "$DIR/gps_node.py missing — scp robot/gps_node.py from the PC"
 # Preflight everything before touching the running stack.
 if [ "$MODE" = sim ]; then
   [ -f "$DIR/nmea_sim.py" ] || fail "$DIR/nmea_sim.py missing — scp robot/tools/nmea_sim.py from the PC"
+  # ─── RANGER V3 START: 11-ingest-region ───
+  # A pre-F11 copy has no --site and would die in its window, failing the /fix check late.
+  # Static check, never `--help`: the old copy treats argv[1] as a path and writes forever.
+  grep -q -- "'--site'" "$DIR/nmea_sim.py" \
+    || fail "$DIR/nmea_sim.py is a stale copy (no --site) — scp robot/tools/nmea_sim.py from the PC"
+  # ─── RANGER V3 END: 11-ingest-region ───
 else
   [ -e "$GPS_PORT_LIVE" ] || fail "no GPS at $GPS_PORT_LIVE — FTDI cable plugged in?"
 fi
@@ -71,7 +97,7 @@ win() {  # win <name> <command>
 
 tmux new-session -d -s "$SESSION" -n shell
 STARTED=1
-tmux set-environment -t "$SESSION" RANGER_MODE "$MODE"   # read by scripts/dev_up.sh
+tmux set-environment -t "$SESSION" RANGER_MODE "$MARK"   # read by scripts/dev_up.sh (F11: sim:<site>)
 
 if [ "$MODE" = sim ]; then
   win socat "socat -d -d pty,raw,echo=0,link=/tmp/gps_sim pty,raw,echo=0,link=/tmp/gps_feed"
@@ -88,7 +114,7 @@ for _ in $(seq 40); do port_open && break; sleep 0.5; done
 port_open || fail "rosbridge not listening on :9090 after 20 s — tmux attach -t $SESSION"
 
 if [ "$MODE" = sim ]; then
-  win nmea_sim "python3 $DIR/nmea_sim.py /tmp/gps_feed"   # LAST
+  win nmea_sim "python3 $DIR/nmea_sim.py /tmp/gps_feed --site $SITE"   # LAST (F11: --site)
 fi
 
 # /fix check. Live publishes no-fix messages too, so this proves the pipe, not a fix.
@@ -106,7 +132,7 @@ for _ in $(seq 6); do
   fi
 done
 if [ "$got_fix" = 1 ]; then
-  echo "ok: /fix publishing · mode=$MODE · rosbridge :9090 · tmux attach -t $SESSION"
+  echo "ok: /fix publishing · mode=$MARK · rosbridge :9090 · tmux attach -t $SESSION"
 else
   # Keep the windows for diagnosis; the marker makes dev_up.sh restart it fresh.
   tmux set-environment -t "$SESSION" RANGER_MODE failed

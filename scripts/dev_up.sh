@@ -12,12 +12,26 @@
 #      (survives this script exiting); restarted fresh if the clock jumped
 #      or the mode differs. rosbridge :9090 checked from the PC.
 #
-# Usage: scripts/dev_up.sh [sim|live]   default: sim  (from anywhere)
+# Usage: scripts/dev_up.sh [sim|live] [nairobi|rabat]   default: sim nairobi  (from anywhere)
+#   site: in sim, where nmea_sim puts the fix; in both modes, the --region the
+#   printed ros_ingest command uses (nairobi -> kenya, the default). F11.
 # Orin windows: ssh -t brian@192.168.55.1 tmux attach -t ranger
 set -euo pipefail
 
 MODE="${1:-sim}"
-case "$MODE" in sim|live) ;; *) echo "usage: $0 [sim|live]" >&2; exit 2 ;; esac
+# ─── RANGER V3 START: 11-ingest-region ───
+SITE="${2:-nairobi}"
+USAGE="usage: $0 [sim|live] [nairobi|rabat]"
+case "$MODE" in sim|live) ;; *) echo "$USAGE" >&2; exit 2 ;; esac
+case "$SITE" in nairobi|rabat) ;; *) echo "$USAGE" >&2; exit 2 ;; esac
+[ $# -le 2 ] || { echo "$USAGE" >&2; exit 2; }
+# Must match the RANGER_MODE marker stack_up.sh writes.
+if [ "$MODE" = sim ]; then WANT="sim:$SITE"; STACK_ARGS="sim --fresh --site $SITE"
+else WANT=live; STACK_ARGS="live --fresh"; fi
+INGEST="python manage.py ros_ingest"
+[ "$MODE" = live ] && INGEST="$INGEST --source live"
+[ "$SITE" = rabat ] && INGEST="$INGEST --region rabat"
+# ─── RANGER V3 END: 11-ingest-region ───
 ORIN_HOST="${ORIN_HOST:-192.168.55.1}"
 ORIN="brian@${ORIN_HOST}"
 MAX_OFFSET_S=0.5
@@ -91,20 +105,20 @@ step "4/5 Postgres + Redis"
 [ "$(docker exec ranger_redis redis-cli ping)" = "PONG" ] || fail "redis did not answer PONG"
 ok "ranger_postgres + ranger_redis healthy"
 
-step "5/5 Orin stack (${MODE})"
+step "5/5 Orin stack (${WANT})"
 # Empty = no session; "unknown" = a session not started by stack_up.sh (no marker).
 running_mode=$(ssh -o BatchMode=yes "$ORIN" \
   "tmux has-session -t ranger 2>/dev/null && { tmux show-environment -t ranger RANGER_MODE 2>/dev/null | cut -d= -f2 | grep . || echo unknown; }" || true)
-if [ "$running_mode" = "$MODE" ] && [ "$clock_jumped" = 0 ]; then
-  ok "already running (${MODE}) — leaving it"
+if [ "$running_mode" = "$WANT" ] && [ "$clock_jumped" = 0 ]; then
+  ok "already running (${WANT}) — leaving it"
 else
   if [ "$clock_jumped" = 1 ]; then why="clock was stepped"
   elif [ "$running_mode" = unknown ]; then why="a session exists with no mode marker"
   elif [ "$running_mode" = failed ]; then why="last start failed"
-  elif [ -n "$running_mode" ]; then why="running ${running_mode}, want ${MODE}"
+  elif [ -n "$running_mode" ]; then why="running ${running_mode}, want ${WANT}"
   else why="not running"; fi
   echo "   starting fresh (${why})"
-  ssh -o BatchMode=yes "$ORIN" "\$HOME/ranger/stack_up.sh ${MODE} --fresh" \
+  ssh -o BatchMode=yes "$ORIN" "\$HOME/ranger/stack_up.sh ${STACK_ARGS}" \
     || fail "stack_up.sh failed — ssh -t $ORIN tmux attach -t ranger"
 fi
 timeout 3 bash -c "</dev/tcp/${ORIN_HOST}/9090" 2>/dev/null \
@@ -115,7 +129,7 @@ cat <<NEXT
 
 ── Ready. Three terminals, venv active (source ${REPO}/.venv/bin/activate):
    T1  cd ${REPO}/ranger_backend && python manage.py runserver      # banner: Daphne
-   T2  cd ${REPO}/ranger_backend && python manage.py ros_ingest     # add --source live ONLY for the real GPS
+   T2  cd ${REPO}/ranger_backend && ${INGEST}
    T3  cd ${REPO}/ranger_frontend && npm run dev                    # http://localhost:5173
 NEXT
 # ─── RANGER V3 END: dev-scripts ───
