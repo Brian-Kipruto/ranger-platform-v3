@@ -13,3 +13,8 @@ black==24.10.0
 pytest==8.3.4
 pytest-django==4.9.0
 pytest-asyncio==0.25.0
+
+# ─── RANGER V3 START: 11-ingest-region ───
+# Same parser gps_node runs on the Orin — the PC hemisphere test uses it.
+pynmea2==1.19.0
+# ─── RANGER V3 END: 11-ingest-region ───
