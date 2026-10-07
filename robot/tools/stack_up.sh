@@ -16,7 +16,8 @@
 #   tmux attach -t ranger                 Ctrl-b n / p to switch windows, Ctrl-b d to detach
 #   tmux kill-session -t ranger           stop everything
 #
-# Clock first: run scripts/dev_up.sh on the PC before this (TS-029).
+# Clock first: the Orin must be NTP-synced to the PC; this script checks and,
+# if needed, forces one resync before starting anything (F12).
 set -euo pipefail
 
 MODE="${1:-sim}"
@@ -76,6 +77,22 @@ if [ "$MODE" = sim ]; then
 else
   [ -e "$GPS_PORT_LIVE" ] || fail "no GPS at $GPS_PORT_LIVE — FTDI cable plugged in?"
 fi
+# ─── RANGER V3 START: 12-field-time ───
+# The clock before anything: rows stamped from a wrong clock are skipped as
+# clock_skew (ADR-0015), and a clock step under running nodes stalls discovery.
+# The Orin takes time only from the PC (robot/config/timesyncd-ranger.conf).
+# After failed attempts timesyncd backs off for minutes (TS-033), so if it
+# isn't synced, force a fresh attempt now instead of waiting it out.
+TIME_WAIT_S="${RANGER_TIME_WAIT_S:-60}"
+synced() { [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = yes ]; }
+if ! synced; then
+  sudo -n /usr/bin/systemctl restart systemd-timesyncd 2>/dev/null \
+    || fail "clock not synced, and timesyncd can't be restarted without a password — install robot/config/sudoers-ranger-timesync (F12)"
+  for _ in $(seq "$TIME_WAIT_S"); do synced && break; sleep 1; done
+  synced || fail "clock not synced to the PC after ${TIME_WAIT_S} s — is chrony running on the PC? (systemctl is-active chrony)"
+  echo "ok: clock resynced from $(timedatectl show-timesync -p ServerAddress --value 2>/dev/null)"
+fi
+# ─── RANGER V3 END: 12-field-time ───
 if [ "$FRESH" = --fresh ]; then
   tmux kill-session -t "$SESSION" 2>/dev/null || true
   # [x] pattern so pkill never matches a shell whose argv contains the name

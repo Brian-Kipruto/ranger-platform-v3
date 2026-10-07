@@ -1,0 +1,6 @@
+# RANGER V3 START: 12-field-time
+# Orin: lets stack_up.sh and dev_up.sh force an immediate NTP resync over ssh
+# without a password prompt (TS-029). Exactly one command, nothing else.
+# Installed as /etc/sudoers.d/ranger-timesync, mode 0440, checked by visudo -c.
+brian ALL=(root) NOPASSWD: /usr/bin/systemctl restart systemd-timesyncd
+# RANGER V3 END: 12-field-time
