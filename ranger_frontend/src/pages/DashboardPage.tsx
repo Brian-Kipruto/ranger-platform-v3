@@ -17,10 +17,15 @@
  * The accent is set by AppShell (org theme_color → --accent). FieldMap needs a
  * hex, so we resolve it the same way the Data Explorer does.
  */
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useAuthStore } from "@/stores/authStore"
 import { getChartData, getRobotOptions } from "@/api/dataLogs"
-import { FieldMap, type FieldMapBlip, type FieldMapReadout } from "@/components/map/FieldMap"
+import {
+  FieldMap,
+  type FieldMapBlip,
+  type FieldMapHandle,
+  type FieldMapReadout,
+} from "@/components/map/FieldMap"
 import { KpiRow } from "@/components/dashboard/KpiRow"
 import { LiveTelemetry } from "@/components/dashboard/LiveTelemetry"
 import { FleetMini, type FleetRow } from "@/components/dashboard/FleetMini"
@@ -65,6 +70,11 @@ function useNow(intervalMs: number): number {
   return now
 }
 // ─── RANGER V3 END: 09-live-console ───
+
+// ─── RANGER V3 START: 11-ingest-region ───
+/** Same zoom FieldMap opens at, so the one-time fly is a pan, not a zoom jump. */
+const FIRST_FIX_ZOOM = 13
+// ─── RANGER V3 END: 11-ingest-region ───
 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user)
@@ -172,6 +182,26 @@ export default function DashboardPage() {
     [liveFleet, positions]
   )
 
+  // ─── RANGER V3 START: 11-ingest-region ───
+  // The map opens on Nairobi; a robot in Rabat is ~5,000 km off-screen. Fly to
+  // the selected robot's FIRST live position, once per robot — never on later
+  // fixes, so the user can pan away without being snapped back.
+  const fieldMap = useRef<FieldMapHandle | null>(null)
+  const flownTo = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    flownTo.current = new Set()
+  }, [userId])
+  const selectedLive = selectedId ? positions[selectedId] : undefined
+  const selLat = selectedLive?.lat
+  const selLon = selectedLive?.lon
+  useEffect(() => {
+    if (!selectedId || selLat === undefined || selLon === undefined) return
+    if (flownTo.current.has(selectedId)) return
+    flownTo.current.add(selectedId)
+    fieldMap.current?.flyTo(selLon, selLat, FIRST_FIX_ZOOM)
+  }, [selectedId, selLat, selLon])
+  // ─── RANGER V3 END: 11-ingest-region ───
+
   const selectedFleet = liveFleet.find((r) => r.id === selectedId) ?? null
   const selectedCoords = selectedId ? coordsFor(selectedId) : undefined
   const readout: FieldMapReadout | null = selectedFleet
@@ -199,6 +229,7 @@ export default function DashboardPage() {
       <div className="mt-[14px] grid grid-cols-1 lg:grid-cols-[1.62fr_1fr] gap-[14px] items-start">
         {/* FIELD MAP */}
         <FieldMap
+          ref={fieldMap /* 11-ingest-region */}
           accent={accent}
           blips={blips}
           selectedBlipId={selectedId || null}
