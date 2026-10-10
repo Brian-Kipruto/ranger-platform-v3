@@ -97,8 +97,8 @@ instead of a silent nothing.
 
 - ~~**`--region` for Rabat.**~~ Closed by F11: `--region {kenya,rabat,none}`,
   default `kenya`, stamped in `provenance_note` (ADR-0018).
-- **Field time.** RTC or GPS-disciplined clock, or Decision 2 blocks all field
-  ingest after an offline reboot.
+- ~~**Field time.**~~ Closed by F12: the PC serves NTP to the Orin by IP and
+  `dev_up.sh` checks the sync (ADR-0019). Wi-Fi leg pending (F12 4d).
 - No robot-side buffering: fixes published while `ros_ingest` is down are lost.
 - Foreground command, not a supervised service (P5c).
 - Rows carry `mission=None`.

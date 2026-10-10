@@ -162,8 +162,8 @@ empty group succeeds. Delivery is proven in the browser.
   push; rows saved during a Redis outage are never pushed (ADR-0017).
 - **Socket auth is connect-time only; nginx/wss not configured** (ADR-0005 #17, #18).
 - **~480 ms of pipeline lag unexplained.** Under budget; stamp at each hop to find it.
-- **Field time** (TS-025, TS-029) still open — blocks the finale. `--region` for
-  Rabat closed by F11 (ADR-0018).
+- Field time closed by F12 over USB (ADR-0019); its Wi-Fi leg (4d) still blocks
+  the finale. `--region` for Rabat closed by F11 (ADR-0018).
 - Live readout heading/speed are DEMO; only coordinates are live.
 - Per-robot, alerts and mission consumers — not built.
 - `run_simulation` live mode doesn't call `broadcast_sensorlog`.

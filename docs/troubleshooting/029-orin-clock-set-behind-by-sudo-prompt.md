@@ -78,3 +78,6 @@ and `nmea_sim` published nothing until restarted (`ros_ingest` reported
   name resolution was not checked. Per TS-025, `ping -c 2 google.com` first.
 - Field time is still open: no RTC battery, no NTP in the field. GPS UTC is the
   reference (F08 open items).
+- **Superseded by F12 (2026-10-07):** the Orin now syncs to chrony on the PC by
+  IP; `dev_up.sh` checks instead of setting, and this `sudo date` path runs only
+  with `--set-clock` (ADR-0019).

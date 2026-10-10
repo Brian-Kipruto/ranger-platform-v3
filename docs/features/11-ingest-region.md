@@ -218,7 +218,7 @@ sim the first fly is a ~600 m pan at the same zoom.
 - **N/W proven on the parser, not on a receiver.** The real NEO-6M has only ever
   fixed S/E. The first live fix in Morocco is the first real-hardware N/W fix:
   check the DB row's signs before anything else.
-- **Field time** (TS-025, TS-029) — the remaining finale blocker. Next pass.
+- **Field time** — closed by F12 over USB (ADR-0019); Wi-Fi leg (F12 4d) open.
 - **Nothing stops two `ros_ingest` processes** (TS-032). No lock.
 - `run_simulation` has no `--region`; add it only if it becomes the Rabat demo fallback.
 - Region is per process, not a `Robot`/`Mission` field.

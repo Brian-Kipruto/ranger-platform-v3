@@ -133,8 +133,8 @@ received NMEA from a live module; see TS-023.
 scripts/dev_up.sh          # sim · or: scripts/dev_up.sh live
 ```
 
-It checks the Orin link, NAT and DNS, sets the Orin clock to within 0.5 s
-(TS-029), brings up Postgres and Redis, and starts the Orin stack over ssh in a
+It checks the Orin link, NAT and DNS, checks the Orin clock is synced to
+chrony on the PC within 0.5 s (F12; `--set-clock` is the old TS-029 fallback), brings up Postgres and Redis, and starts the Orin stack over ssh in a
 tmux session via `robot/tools/stack_up.sh`, which waits for rosbridge and
 confirms `/fix` is publishing. It then prints the PC commands to run. Inspect
 the Orin windows with `ssh -t brian@192.168.55.1 tmux attach -t ranger`. The
@@ -239,8 +239,8 @@ nothing.** Check the Orin against the PC (separate terminals) or the GPS's UTC.
 ## Open items
 
 - ~~**Rabat: `--region`** on `ros_ingest`.~~ Closed by F11 (ADR-0018).
-- **Field time.** No NTP away from the PC; the Orin has no running RTC and was
-  22 minutes slow on 2026-10-03. GPS UTC is the obvious field reference.
+- ~~**Field time.**~~ Closed by F12 over USB: the PC serves NTP by IP (ADR-0019).
+  Wi-Fi leg (F12 4d) and GPS time witness (4c) open.
 - **Header UART undiagnosed** (TS-023). Lead theory: wired to the wrong row.
   Five-minute loopback test at the exact positions used.
 - **Second FTDI adapter** for the PM sensor — this one is now the GPS's.
