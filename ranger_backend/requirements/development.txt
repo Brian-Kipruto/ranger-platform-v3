@@ -18,3 +18,9 @@ pytest-asyncio==0.25.0
 # Same parser gps_node runs on the Orin — the PC hemisphere test uses it.
 pynmea2==1.19.0
 # ─── RANGER V3 END: 11-ingest-region ───
+
+# ─── RANGER V3 START: 13-ranger-msgs ───
+# Parses robot/ranger_msgs/package.xml the way colcon does (test_msg_contract),
+# so a manifest the Orin would refuse fails on the PC first.
+catkin_pkg==1.1.1
+# ─── RANGER V3 END: 13-ranger-msgs ───
