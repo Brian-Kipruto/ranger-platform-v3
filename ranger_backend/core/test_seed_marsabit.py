@@ -62,6 +62,16 @@ class TestProvenanceIsNeverOverclaimed:
         )
         assert sources == {SensorLog.Source.MODELLED}
 
+    # ─── RANGER V3 START: 13-reading-source ───
+    def test_every_reading_is_modelled(self, seeded):
+        """ADR-0020: the reading carries its own label, and it matches the row."""
+        sources = set(
+            RadiationLog.objects.filter(sensor_log__robot__organization=seeded)
+            .values_list("source", flat=True)
+        )
+        assert sources == {SensorLog.Source.MODELLED}
+    # ─── RANGER V3 END: 13-reading-source ───
+
     def test_nothing_claims_to_be_measured(self, seeded):
         assert not SensorLog.objects.filter(
             robot__organization=seeded,

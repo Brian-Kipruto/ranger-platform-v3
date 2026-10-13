@@ -397,6 +397,11 @@ class Command(BaseCommand):
                 # Back-calculated from the published dose rate, not measured.
                 radiation_value=round(dose_usvh * CPM_PER_USVH, 2),
                 dose_rate_usvh=round(dose_usvh, 6),
+                # ─── RANGER V3 START: 13-reading-source ───
+                # The reading is as modelled as its row (ADR-0020). Without
+                # this it would default to 'simulated' and under-claim.
+                source=SensorLog.Source.MODELLED,
+                # ─── RANGER V3 END: 13-reading-source ───
             ))
         RadiationLog.objects.bulk_create(readings, batch_size=2000)
 

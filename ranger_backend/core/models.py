@@ -159,8 +159,10 @@ class SensorLog(models.Model):
         choices=Source.choices,
         default=Source.SIMULATED,
         db_index=True,
-        help_text="Provenance of this reading. Drives the honesty of every "
-                  "downstream validation claim.",
+        # F13 (ADR-0020): this labels the POSITION — the fix. Readings
+        # attached to the row carry their own `source` (ReadingProvenance).
+        help_text="Provenance of this row's position (the fix). Readings "
+                  "carry their own source (ADR-0020).",
     )
     provenance_note = models.CharField(
         max_length=300,
@@ -226,7 +228,38 @@ class SensorLog(models.Model):
         return f"{self.robot.robot_id_str} @ {self.timestamp:%Y-%m-%d %H:%M:%S}"
 
 
-class RadiationLog(models.Model):
+# ─── RANGER V3 START: 13-reading-source ───
+class ReadingProvenance(models.Model):
+    """Per-reading provenance (ADR-0020).
+
+    SensorLog.source labels the POSITION (where/when). Each reading carries its
+    own label, because one row can hold a real GPS fix, real PM and simulated
+    radiation at once — and no single row label can describe that honestly.
+
+    Same vocabulary and same weakest default as SensorLog.Source (ADR-0012).
+    Deliberately NOT nullable and NOT inherited from the row: an unlabelled
+    simulated reading on a live row must under-claim as SIMULATED, never
+    silently pick up LIVE from the GPS fix it rides on.
+    """
+
+    source = models.CharField(
+        max_length=10,
+        choices=SensorLog.Source.choices,
+        default=SensorLog.Source.SIMULATED,
+        help_text="Provenance of this reading, independent of the row's "
+                  "position provenance.",
+    )
+
+    class Meta:
+        abstract = True
+
+    @property
+    def is_measured(self) -> bool:
+        return self.source in (SensorLog.Source.LIVE, SensorLog.Source.REPORTED)
+# ─── RANGER V3 END: 13-reading-source ───
+
+
+class RadiationLog(ReadingProvenance):
     """Radiation readings for a SensorLog."""
 
     sensor_log = models.OneToOneField(
@@ -244,7 +277,7 @@ class RadiationLog(models.Model):
         return f"Radiation {self.radiation_value} CPM"
 
 
-class AirQualityLog(models.Model):
+class AirQualityLog(ReadingProvenance):
     """Particulate readings for a SensorLog."""
 
     sensor_log = models.OneToOneField(
@@ -260,7 +293,7 @@ class AirQualityLog(models.Model):
         return f"PM2.5 {self.pm25} / PM10 {self.pm10}"
 
 
-class ImuBaroLog(models.Model):
+class ImuBaroLog(ReadingProvenance):
     """IMU + barometer readings for a SensorLog."""
 
     sensor_log = models.OneToOneField(
