@@ -48,6 +48,7 @@ def cmd(robot):
     c.counts = Counter()
     c.lock = threading.Lock()
     c.broadcast_up = True
+    c.readings = mod.ReadingCache(ceiling=c.source)  # F13: _ingest attaches from it
     return c
 
 

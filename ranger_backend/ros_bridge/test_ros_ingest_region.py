@@ -48,7 +48,7 @@ class FakeRos:
 
 
 class FakeTopic:
-    def __init__(self, client, name, msg_type):
+    def __init__(self, client, name, msg_type, **kw):  # F13: throttle_rate
         pass
 
     def subscribe(self, cb):
@@ -69,7 +69,7 @@ def run(monkeypatch, robot):
     monkeypatch.setattr(mod, "broadcast_sensorlog", lambda log: None)
 
     def _run(*fixes, **opts):
-        pending = list(fixes)
+        pending = [("fix", f) for f in fixes]  # F13: one inbox, (key, msg) items
 
         class ScriptedInbox:
             def __init__(self, maxsize=0):
