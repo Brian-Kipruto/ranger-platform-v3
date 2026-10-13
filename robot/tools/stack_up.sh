@@ -3,11 +3,15 @@
 # Orin: start the robot stack in one tmux session, one window per process,
 # in the order F08 requires, then check /fix is publishing.
 #
-#   sim : socat pty pair → gps_node on /tmp/gps_sim → rosbridge → nmea_sim (last)
-#   live: gps_node on the FTDI by-id port → rosbridge
+#   sim : socat pty pair → gps_node on /tmp/gps_sim → rosbridge → radiation_node
+#         → sensor_sim → nmea_sim (last)
+#   live: gps_node on the FTDI by-id port → rosbridge → radiation_node
+#   radiation_node runs count_source:=sim in BOTH modes until a GM tube works (F13).
 #
 # Deploy (from the PC, repo root):
 #   scp robot/tools/stack_up.sh brian@192.168.55.1:~/ranger/
+#   F13: also robot/{radiation_node,sensor_sim,sensor_sources}.py → ~/ranger/, and
+#   robot/ranger_msgs → ~/ranger/ws/src/, built with colcon (see the F13 doc).
 # Run (on the Orin):
 #   ~/ranger/stack_up.sh [sim|live] [--fresh] [--site nairobi|rabat]   default: sim, nairobi
 #     --fresh  kill any running session and stray stack processes first
@@ -32,6 +36,10 @@ SESSION=ranger
 DIR="$HOME/ranger"
 GPS_PORT_LIVE=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AZ6YQ8AI-if00-port0
 ROS_SETUP=/opt/ros/humble/setup.bash
+# ─── RANGER V3 START: 13-sensor-sim ───
+# ranger_msgs overlay. rosbridge needs it too, or it can't serialise the reading types.
+OVERLAY="$DIR/ws/install/setup.bash"
+# ─── RANGER V3 END: 13-sensor-sim ───
 
 STARTED=0
 # A failure after the session exists must not leave a half-built session
@@ -65,6 +73,15 @@ if [ "$MODE" = sim ]; then MARK="sim:$SITE"; else MARK=live; fi
 # ─── RANGER V3 END: 11-ingest-region ───
 command -v tmux >/dev/null || fail "tmux not installed: sudo apt install tmux"
 [ -f "$DIR/gps_node.py" ] || fail "$DIR/gps_node.py missing — scp robot/gps_node.py from the PC"
+# ─── RANGER V3 START: 13-sensor-sim ───
+[ -f "$OVERLAY" ] || fail "$OVERLAY missing — build ranger_msgs: cd ~/ranger/ws && colcon build --packages-select ranger_msgs"
+for f in radiation_node.py sensor_sources.py; do
+  [ -f "$DIR/$f" ] || fail "$DIR/$f missing — scp robot/$f from the PC"
+done
+if [ "$MODE" = sim ]; then
+  [ -f "$DIR/sensor_sim.py" ] || fail "$DIR/sensor_sim.py missing — scp robot/sensor_sim.py from the PC"
+fi
+# ─── RANGER V3 END: 13-sensor-sim ───
 # Preflight everything before touching the running stack.
 if [ "$MODE" = sim ]; then
   [ -f "$DIR/nmea_sim.py" ] || fail "$DIR/nmea_sim.py missing — scp robot/tools/nmea_sim.py from the PC"
@@ -99,6 +116,8 @@ if [ "$FRESH" = --fresh ]; then
   pkill -f '[g]ps_node.py' 2>/dev/null || true
   pkill -f '[n]mea_sim.py' 2>/dev/null || true
   pkill -f '[r]osbridge_websocket' 2>/dev/null || true
+  pkill -f '[r]adiation_node.py' 2>/dev/null || true   # 13-sensor-sim
+  pkill -f '[s]ensor_sim.py' 2>/dev/null || true       # 13-sensor-sim
   pkill -x socat 2>/dev/null || true
   rm -f /tmp/gps_sim /tmp/gps_feed
   sleep 2
@@ -109,7 +128,7 @@ fi
 
 # Each window keeps a shell after its process exits, so a crash stays readable.
 win() {  # win <name> <command>
-  tmux new-window -t "$SESSION" -n "$1" "bash -c 'source $ROS_SETUP; $2; echo; echo \"[$1 exited]\"; exec bash'"
+  tmux new-window -t "$SESSION" -n "$1" "bash -c 'source $ROS_SETUP; source $OVERLAY; $2; echo; echo \"[$1 exited]\"; exec bash'"
 }
 
 tmux new-session -d -s "$SESSION" -n shell
@@ -130,6 +149,13 @@ port_open() { timeout 1 bash -c '</dev/tcp/127.0.0.1/9090' 2>/dev/null; }
 for _ in $(seq 40); do port_open && break; sleep 0.5; done
 port_open || fail "rosbridge not listening on :9090 after 20 s — tmux attach -t $SESSION"
 
+# ─── RANGER V3 START: 13-sensor-sim ───
+win radiation "cd $DIR && python3 radiation_node.py --ros-args -p count_source:=sim"
+if [ "$MODE" = sim ]; then
+  win sensor_sim "cd $DIR && python3 sensor_sim.py --ros-args -p site:=$SITE"
+fi
+# ─── RANGER V3 END: 13-sensor-sim ───
+
 if [ "$MODE" = sim ]; then
   win nmea_sim "python3 $DIR/nmea_sim.py /tmp/gps_feed --site $SITE"   # LAST (F11: --site)
 fi
@@ -140,6 +166,8 @@ fi
 set +u
 # shellcheck disable=SC1090
 source "$ROS_SETUP"
+# shellcheck disable=SC1090
+source "$OVERLAY"   # 13-sensor-sim: echo needs the ranger_msgs types
 set -u
 ros2 daemon stop >/dev/null 2>&1 || true   # stale discovery cache after a clock step
 got_fix=0
@@ -156,4 +184,26 @@ else
   STARTED=0
   fail "no /fix within 30 s — session left up for diagnosis: tmux attach -t $SESSION (gps, nmea_sim windows)"
 fi
+# ─── RANGER V3 START: 13-sensor-sim ───
+# Every reading topic this mode should carry must publish, or the stack fails
+# the way a silent /fix does: session kept for diagnosis, marker says failed.
+READINGS="/ranger/radiation:Radiation"
+if [ "$MODE" = sim ]; then
+  READINGS="$READINGS /ranger/air_quality:AirQuality /ranger/imu_baro:ImuBaro"
+fi
+for r in $READINGS; do
+  topic="${r%%:*}"; ok=0
+  for _ in $(seq 3); do
+    if timeout 5 ros2 topic echo --once "$topic" "ranger_msgs/msg/${r#*:}" >/dev/null 2>&1; then
+      ok=1; break
+    fi
+  done
+  if [ "$ok" = 0 ]; then
+    tmux set-environment -t "$SESSION" RANGER_MODE failed
+    STARTED=0
+    fail "no $topic within 15 s — session left up: tmux attach -t $SESSION (radiation, sensor_sim windows)"
+  fi
+done
+echo "ok: readings publishing · $READINGS"
+# ─── RANGER V3 END: 13-sensor-sim ───
 # ─── RANGER V3 END: dev-scripts ───
