@@ -5,12 +5,14 @@
 #
 #   sim : socat pty pair → gps_node on /tmp/gps_sim → rosbridge → radiation_node
 #         → sensor_sim → nmea_sim (last)
-#   live: gps_node on the FTDI by-id port → rosbridge → radiation_node
+#   live: gps_node on the FTDI by-id port → rosbridge → radiation_node → imu_node
 #   radiation_node runs count_source:=sim in BOTH modes until a GM tube works (F13).
+#   imu_node (real 10-DOF board) runs in live mode only; sim mode uses sensor_sim.
 #
 # Deploy (from the PC, repo root):
 #   scp robot/tools/stack_up.sh brian@192.168.55.1:~/ranger/
-#   F13: also robot/{radiation_node,sensor_sim,sensor_sources}.py → ~/ranger/, and
+#   F13: also robot/{radiation_node,sensor_sim,sensor_sources,imu_node,imu_math}.py
+#   → ~/ranger/, robot/config/imu_mount.json → ~/ranger/config/, and
 #   robot/ranger_msgs → ~/ranger/ws/src/, built with colcon (see the F13 doc).
 # Run (on the Orin):
 #   ~/ranger/stack_up.sh [sim|live] [--fresh] [--site nairobi|rabat]   default: sim, nairobi
@@ -80,6 +82,12 @@ for f in radiation_node.py sensor_sources.py; do
 done
 if [ "$MODE" = sim ]; then
   [ -f "$DIR/sensor_sim.py" ] || fail "$DIR/sensor_sim.py missing — scp robot/sensor_sim.py from the PC"
+else
+  for f in imu_node.py imu_math.py; do
+    [ -f "$DIR/$f" ] || fail "$DIR/$f missing — scp robot/$f from the PC"
+  done
+  [ -f "$DIR/config/imu_mount.json" ] \
+    || fail "$DIR/config/imu_mount.json missing — scp robot/config/imu_mount.json to ~/ranger/config/"
 fi
 # ─── RANGER V3 END: 13-sensor-sim ───
 # Preflight everything before touching the running stack.
@@ -118,6 +126,7 @@ if [ "$FRESH" = --fresh ]; then
   pkill -f '[r]osbridge_websocket' 2>/dev/null || true
   pkill -f '[r]adiation_node.py' 2>/dev/null || true   # 13-sensor-sim
   pkill -f '[s]ensor_sim.py' 2>/dev/null || true       # 13-sensor-sim
+  pkill -f '[i]mu_node.py' 2>/dev/null || true         # 13-imu
   pkill -x socat 2>/dev/null || true
   rm -f /tmp/gps_sim /tmp/gps_feed
   sleep 2
@@ -153,6 +162,8 @@ port_open || fail "rosbridge not listening on :9090 after 20 s — tmux attach -
 win radiation "cd $DIR && python3 radiation_node.py --ros-args -p count_source:=sim"
 if [ "$MODE" = sim ]; then
   win sensor_sim "cd $DIR && python3 sensor_sim.py --ros-args -p site:=$SITE"
+else
+  win imu "cd $DIR && python3 imu_node.py"   # 13-imu: real 10-DOF board
 fi
 # ─── RANGER V3 END: 13-sensor-sim ───
 
@@ -190,6 +201,8 @@ fi
 READINGS="/ranger/radiation:Radiation"
 if [ "$MODE" = sim ]; then
   READINGS="$READINGS /ranger/air_quality:AirQuality /ranger/imu_baro:ImuBaro"
+else
+  READINGS="$READINGS /ranger/imu_baro:ImuBaro"   # 13-imu; air_quality when the SDS011 lands
 fi
 for r in $READINGS; do
   topic="${r%%:*}"; ok=0
@@ -201,7 +214,7 @@ for r in $READINGS; do
   if [ "$ok" = 0 ]; then
     tmux set-environment -t "$SESSION" RANGER_MODE failed
     STARTED=0
-    fail "no $topic within 15 s — session left up: tmux attach -t $SESSION (radiation, sensor_sim windows)"
+    fail "no $topic within 15 s — session left up: tmux attach -t $SESSION (radiation, sensor_sim/imu windows)"
   fi
 done
 echo "ok: readings publishing · $READINGS"
