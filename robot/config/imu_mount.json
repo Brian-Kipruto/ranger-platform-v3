@@ -1,0 +1,5 @@
+{
+  "forward": "-z",
+  "up": "-x",
+  "note": "6WD (F13, 2026-10-13): 10-DOF board vertical on an extrusion, header pins up, chip side facing the robot's back. Remount -> change this and redo the tip test (F13 doc)."
+}
