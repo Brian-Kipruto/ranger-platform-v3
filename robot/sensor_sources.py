@@ -9,9 +9,19 @@ THE GEIGER SEAM (F13; the deliverable is the seam, not the sim)
       claim              "live" | "simulated" — travels with the source, so
                          swapping the source swaps the label; nobody has to
                          remember to flip a flag
-      counts(dt_s)->int  counts since the last call
-  COUNT_SOURCES maps the node's `count_source` parameter to a class. The real
-  tube (5d) is one more entry here; radiation_node does not change.
+      counts(dt_s)       counts since the last call, or None = NO DATA (the
+                         feed is dead/stale). None is not 0: a dead tube must
+                         never read as a clean area labelled LIVE.
+  COUNT_SOURCES maps the node's `count_source` parameter to a class:
+      sim  SimCounts   Poisson, claims SIMULATED (today: the tube is dead)
+      uno  UnoCounts   real tube via the Uno, claims LIVE (5d)
+  Swapping the tube in is `-p count_source:=uno` in stack_up.sh. Nothing else.
+
+  The Uno counts, it does not compute CPM: it sends `G,<counts>` (counts since
+  its previous G line, about once a second) and the bridge that owns the Uno's
+  serial port (F14 — it also carries motor commands) republishes each as
+  std_msgs/UInt32 on /ranger/geiger_counts. Windowing happens once, here, the
+  same way for sim and real counts.
 
 SIM MODELS for sim mode (stand-ins for the SDS011 and MPU6050 until 5c's real
 nodes). Each step() returns a dict whose keys are exactly the ranger_msgs
@@ -19,6 +29,7 @@ fields (test_sensor_sources asserts it against the .msg files).
 """
 import math
 import random
+import time
 from collections import deque
 
 # == ranger_msgs SOURCE_* constants (asserted by test_sensor_sources).
@@ -60,8 +71,64 @@ class SimCounts:
         return poisson(self.rng, rate_cpm * dt_s / 60.0)
 
 
-# count_source parameter -> class. 5d adds the real tube here.
-COUNT_SOURCES = {"sim": SimCounts}
+GEIGER_COUNTS_TOPIC = "/ranger/geiger_counts"
+
+
+class UnoCounts:
+    """The real GM tube, via the Uno (5d seam; live once a tube works).
+
+    Subscribes to /ranger/geiger_counts (std_msgs/UInt32, counts per report)
+    and hands radiation_node the sum since its last tick. No report for
+    `stale_s` -> None (no data), never 0. Claims LIVE.
+
+    `msg_type` and `clock` are injectable so the PC tests run without ROS.
+    """
+
+    claim = SOURCE_LIVE
+
+    def __init__(self, node, background_cpm=None, stale_s=3.0, msg_type=None,
+                 clock=time.monotonic):
+        if msg_type is None:
+            from std_msgs.msg import UInt32 as msg_type  # robot only
+        self.stale_s = float(stale_s)
+        self.clock = clock
+        self.pending = 0
+        self.last_report = None
+        node.create_subscription(msg_type, GEIGER_COUNTS_TOPIC, self.on_report, 10)
+
+    def on_report(self, msg):
+        self.pending += int(msg.data)
+        self.last_report = self.clock()
+
+    def counts(self, dt_s):
+        if self.last_report is None or self.clock() - self.last_report > self.stale_s:
+            self.pending = 0
+            return None
+        n, self.pending = self.pending, 0
+        return n
+
+
+# count_source parameter -> class.
+COUNT_SOURCES = {"sim": SimCounts, "uno": UnoCounts}
+
+
+class RadiationTicker:
+    """One radiation_node tick: source -> window -> Radiation fields, or None.
+
+    No data from the source -> the window is cleared (stale counts must not
+    leak into the next CPM) and nothing is published, so ingest attaches no
+    radiation rather than a stale or zero value."""
+
+    def __init__(self, source, window, usvh_per_cpm=math.nan):
+        self.source, self.window, self.usvh_per_cpm = source, window, usvh_per_cpm
+
+    def step(self, dt_s):
+        n = self.source.counts(dt_s)
+        if n is None:
+            self.window.ticks.clear()
+            return None
+        self.window.add(n)
+        return radiation_fields(self.window.cpm(), self.usvh_per_cpm, self.source.claim)
 
 
 class CpmWindow:

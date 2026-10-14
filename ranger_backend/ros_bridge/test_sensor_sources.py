@@ -34,6 +34,43 @@ nmea_sim = _load("nmea_sim", "tools/nmea_sim.py")
 S = SensorLog.Source
 
 
+class FakeNode:
+    """Stands in for rclpy: captures the subscription the source makes."""
+
+    def __init__(self):
+        self.subs = {}
+
+    def create_subscription(self, msg_type, topic, callback, qos):
+        self.subs[topic] = (msg_type, callback)
+
+
+class UInt32:
+    def __init__(self, data):
+        self.data = data
+
+
+class Clock:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+def uno(stale_s=3.0):
+    node, clock = FakeNode(), Clock()
+    src = ss.UnoCounts(node, stale_s=stale_s, msg_type=UInt32, clock=clock)
+    msg_type, report = node.subs[ss.GEIGER_COUNTS_TOPIC]
+    assert msg_type is UInt32
+    return src, report, clock
+
+
+def make_source(name):
+    if name == "uno":
+        return uno()[0]
+    return ss.COUNT_SOURCES[name](node=None, background_cpm=30.0)
+
+
 def msg_fields(name):
     fields, consts = parse_msg(PKG / "msg" / f"{name}.msg")
     fields.pop("header")
@@ -66,9 +103,13 @@ class TestGeigerSeam:
 
     @pytest.mark.parametrize("name", sorted(ss.COUNT_SOURCES))
     def test_every_source_has_the_seam_shape(self, name):
-        src = ss.COUNT_SOURCES[name](node=None, background_cpm=30.0)
+        src = make_source(name)
         assert src.claim in ROBOT_CLAIMS
-        assert isinstance(src.counts(1.0), int)
+        n = src.counts(1.0)
+        assert n is None or isinstance(n, int)
+
+    def test_the_two_sources_are_sim_and_uno(self):
+        assert set(ss.COUNT_SOURCES) == {"sim", "uno"}
 
     def test_sim_source_claims_simulated(self):
         """Fork 7: the sim can't emit LIVE — the label travels with the source."""
@@ -104,6 +145,101 @@ class TestGeigerSeam:
             cpms.append(w.cpm())
         settled = cpms[60:]
         assert sum(settled) / len(settled) == pytest.approx(30.0, rel=0.05)
+
+
+class TestUnoSource:
+    """The real tube's side of the seam, without a tube, an Uno or ROS."""
+
+    def test_claims_live(self):
+        assert ss.UnoCounts.claim == ss.SOURCE_LIVE
+
+    def test_topic_is_the_bridge_contract(self):
+        """The F14 uno_bridge publishes here; changing it breaks the swap silently."""
+        assert ss.GEIGER_COUNTS_TOPIC == "/ranger/geiger_counts"
+
+    def test_no_report_ever_is_no_data_not_zero(self):
+        src, _, _ = uno()
+        assert src.counts(1.0) is None
+
+    def test_sums_reports_since_the_last_tick(self):
+        src, report, clock = uno()
+        for n in (3, 0, 2):
+            report(UInt32(n))
+            clock.t += 0.3
+        assert src.counts(1.0) == 5
+        report(UInt32(1))
+        assert src.counts(1.0) == 1
+
+    def test_live_feed_with_zero_counts_is_zero(self):
+        """A working tube in a clean spot: 0 is a real reading."""
+        src, report, _ = uno()
+        report(UInt32(0))
+        assert src.counts(1.0) == 0
+
+    def test_stale_feed_is_no_data_and_drops_pending(self):
+        src, report, clock = uno(stale_s=3.0)
+        report(UInt32(7))
+        clock.t += 3.01
+        assert src.counts(1.0) is None
+        report(UInt32(2))  # feed resumes
+        assert src.counts(1.0) == 2  # the 7 from before the gap is gone
+
+    def test_exactly_at_the_stale_limit_is_still_live(self):
+        src, report, clock = uno(stale_s=3.0)
+        report(UInt32(4))
+        clock.t += 3.0
+        assert src.counts(1.0) == 4
+
+
+class TestRadiationTicker:
+
+    def test_no_data_publishes_nothing_and_resets_the_window(self):
+        src, report, clock = uno()
+        t = ss.RadiationTicker(src, ss.CpmWindow(window_s=60.0))
+        for _ in range(10):  # 10 s at 6 counts/s = 360 CPM
+            report(UInt32(6))
+            assert t.step(1.0)["cpm"] == pytest.approx(360.0)
+            clock.t += 1.0
+        clock.t += 5.0  # feed dies
+        assert t.step(1.0) is None
+        report(UInt32(1))  # back, at 60 CPM: no trace of the 360
+        assert t.step(1.0)["cpm"] == pytest.approx(60.0)
+
+    def test_sim_ticker_always_publishes(self):
+        t = ss.RadiationTicker(ss.SimCounts(rng=random.Random(1)), ss.CpmWindow())
+        assert all(t.step(1.0) is not None for _ in range(100))
+
+
+class TestSwap:
+    """5d: putting a real tube in = count_source:=uno. Same CPM maths, same
+    fields, same topic and message; only the label changes."""
+
+    def test_same_counts_same_cpm_different_label(self):
+        counts = [0, 1, 0, 2, 1, 0, 0, 1, 3, 0]
+
+        class Replay:  # a sim source fed fixed counts
+            claim = ss.SOURCE_SIMULATED
+
+            def __init__(self):
+                self.it = iter(counts)
+
+            def counts(self, dt_s):
+                return next(self.it)
+
+        src, report, _ = uno()
+        sim_t = ss.RadiationTicker(Replay(), ss.CpmWindow())
+        uno_t = ss.RadiationTicker(src, ss.CpmWindow())
+        for n in counts:
+            report(UInt32(n))
+            a, b = sim_t.step(1.0), uno_t.step(1.0)
+            assert set(a) == set(b) == msg_fields("Radiation")[0]
+            assert a["cpm"] == b["cpm"]
+            assert (a["source"], b["source"]) == (ss.SOURCE_SIMULATED, ss.SOURCE_LIVE)
+
+    def test_stack_up_selects_the_source_by_one_parameter(self):
+        """The swap is exactly this line in stack_up.sh (sim -> uno)."""
+        stack = (PKG.parent / "tools" / "stack_up.sh").read_text()
+        assert stack.count("radiation_node.py --ros-args -p count_source:=sim") == 1
 
 
 class TestCpmWindow:
@@ -173,6 +309,37 @@ class TestSimModels:
         r = ss.SimImuBaro(1661.0, rng=random.Random(2)).step(0.1)
         assert r["pressure_hpa"] == pytest.approx(ss.pressure_hpa(r["altitude_m"]), abs=0.01)
         assert 820 < r["pressure_hpa"] < 840  # Nairobi
+
+
+def _ingest_cmd(robot, monkeypatch, ceiling):
+    monkeypatch.setattr(ingest, "close_old_connections", lambda: None)
+    monkeypatch.setattr(ingest, "broadcast_sensorlog", lambda log: None)
+    c = ingest.Command()
+    c.robot, c.source, c.max_skew, c.note = robot, ceiling, 120.0, "test"
+    c.region = KENYA_BBOX
+    c.counts, c.lock, c.broadcast_up = Counter(), threading.Lock(), True
+    c.readings = ingest.ReadingCache(ceiling=ceiling)
+    return c
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("ceiling,expected", [(S.LIVE, S.LIVE), (S.SIMULATED, S.SIMULATED)])
+def test_real_tube_reading_through_real_ingest(robot, monkeypatch, ceiling, expected):
+    """Live robot + uno source -> radiation stored LIVE. Sim mode (ceiling
+    SIMULATED) still caps it: a real count on a fake position isn't ground truth."""
+    c = _ingest_cmd(robot, monkeypatch, ceiling)
+    src, report, _ = uno()
+    t = ss.RadiationTicker(src, ss.CpmWindow())
+    report(UInt32(2))
+    fields = t.step(1.0)
+    fields["dose_rate_usvh"] = None  # NaN over rosbridge
+    hdr = {"stamp": {"sec": int(time.time()), "nanosec": 0}}
+    c._dispatch(("radiation", {"header": hdr, **fields}))
+    c._dispatch(("fix", {"header": hdr, "status": {"status": 0},
+                         "latitude": -1.2864, "longitude": 36.8172}))
+    log = SensorLog.objects.get()
+    assert log.radiation_data.radiation_value == pytest.approx(120.0)
+    assert log.radiation_data.source == expected
 
 
 @pytest.mark.django_db
