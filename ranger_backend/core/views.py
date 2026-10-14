@@ -25,7 +25,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from .models import SensorLog
+from .models import AirQualityLog, ImuBaroLog, RadiationLog, SensorLog
 from .pagination import StandardResultsSetPagination
 from .serializers import DataLogSerializer
 
@@ -151,9 +151,12 @@ def data_log_export_csv(request):
         # loses its labels is exactly how modelled data gets mistaken for
         # measured data downstream.
         "source", "provenance_note",
-        "radiation_value", "dose_rate_usvh",
-        "pm25", "pm10",
-        "roll", "pitch", "yaw", "pressure_baro", "altitude_baro",
+        # F13 (ADR-0020): each reading group ends with its own source column.
+        # `source` above is the position's; a reader of radiation_value must
+        # read radiation_source.
+        "radiation_value", "dose_rate_usvh", "radiation_source",
+        "pm25", "pm10", "air_quality_source",
+        "roll", "pitch", "yaw", "pressure_baro", "altitude_baro", "imu_source",
     ]
     writer = csv.DictWriter(response, fieldnames=fieldnames)
     writer.writeheader()
@@ -221,6 +224,10 @@ class MapDataAPIView(generics.GenericAPIView):
                     "timestamp": log.timestamp.isoformat(),
                     "radiation_value": rad.radiation_value if rad is not None else None,
                     "pm25": air.pm25 if air is not None else None,
+                    # F13: each value's own provenance; `source` below is the
+                    # position's (the marker colour).
+                    "radiation_source": rad.source if rad is not None else None,
+                    "air_quality_source": air.source if air is not None else None,
                     # F10.2: lets the map badge markers by provenance, so
                     # modelled points are visibly distinct from measured ones
                     # without the user opening anything.
@@ -287,9 +294,22 @@ class MapDataAPIView(generics.GenericAPIView):
         notes_truncated = len(notes) > NOTE_SUMMARY_LIMIT
         notes = notes[:NOTE_SUMMARY_LIMIT]
 
+        # ─── RANGER V3 START: 13-reading-source ───
+        # Per-reading provenance over the same uncapped set. `by_source` counts
+        # POSITIONS; a set of live positions carrying simulated radiation has
+        # by_source={"live": n} and must still be flagged, from here.
+        readings = {}
+        for key, model in (("radiation", RadiationLog), ("air_quality", AirQualityLog),
+                           ("imu_baro", ImuBaroLog)):
+            rows = (model.objects.filter(sensor_log__in=qs.order_by().values("id"))
+                    .values("source").annotate(n=Count("pk")).order_by())
+            readings[key] = {row["source"]: row["n"] for row in rows}
+        # ─── RANGER V3 END: 13-reading-source ───
+
         return {
             "total": total,
             "by_source": by_source,
+            "readings": readings,  # 13: tier -> count, per reading kind
             "notes": notes,
             "notes_truncated": notes_truncated,
             # The map drew `returned` of `total`. Surfacing this is what lets

@@ -46,9 +46,10 @@ EXPECTED_CSV_HEADER = [
     # forced the decision to be conscious rather than accidental — which is
     # exactly why the header is pinned.
     "source", "provenance_note",
-    "radiation_value", "dose_rate_usvh",
-    "pm25", "pm10",
-    "roll", "pitch", "yaw", "pressure_baro", "altitude_baro",
+    # F13 (ADR-0020): each reading group ends with its own source column.
+    "radiation_value", "dose_rate_usvh", "radiation_source",
+    "pm25", "pm10", "air_quality_source",
+    "roll", "pitch", "yaw", "pressure_baro", "altitude_baro", "imu_source",
 ]
 
 

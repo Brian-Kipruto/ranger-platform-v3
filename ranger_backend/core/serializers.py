@@ -65,6 +65,16 @@ class DataLogSerializer(serializers.ModelSerializer):
     pressure_baro = serializers.SerializerMethodField()
     altitude_baro = serializers.SerializerMethodField()
 
+    # ─── RANGER V3 START: 13-reading-source ───
+    # Each reading's OWN provenance (ADR-0020). `source` above labels the
+    # position; a live fix can carry a simulated radiation reading, and a
+    # consumer reading `radiation_value` must look at `radiation_source`, never
+    # at `source`. null when that reading is absent (same as its values).
+    radiation_source = serializers.SerializerMethodField()
+    air_quality_source = serializers.SerializerMethodField()
+    imu_source = serializers.SerializerMethodField()
+    # ─── RANGER V3 END: 13-reading-source ───
+
     class Meta:
         model = SensorLog
         fields = [
@@ -81,13 +91,16 @@ class DataLogSerializer(serializers.ModelSerializer):
             "provenance_note",
             "radiation_value",
             "dose_rate_usvh",
+            "radiation_source",  # 13
             "pm25",
             "pm10",
+            "air_quality_source",  # 13
             "roll",
             "pitch",
             "yaw",
             "pressure_baro",
             "altitude_baro",
+            "imu_source",  # 13
         ]
 
     # ─── reading getters (all getattr-guarded) ───
@@ -126,4 +139,18 @@ class DataLogSerializer(serializers.ModelSerializer):
     def get_altitude_baro(self, obj):
         i = getattr(obj, "imu_baro_data", None)
         return i.altitude_baro if i is not None else None
+
+    # ─── RANGER V3 START: 13-reading-source ───
+    def get_radiation_source(self, obj):
+        r = getattr(obj, "radiation_data", None)
+        return r.source if r is not None else None
+
+    def get_air_quality_source(self, obj):
+        a = getattr(obj, "air_quality_data", None)
+        return a.source if a is not None else None
+
+    def get_imu_source(self, obj):
+        i = getattr(obj, "imu_baro_data", None)
+        return i.source if i is not None else None
+    # ─── RANGER V3 END: 13-reading-source ───
 # ─── RANGER V3 END: data explorer serializer ───
