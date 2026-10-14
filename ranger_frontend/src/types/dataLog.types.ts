@@ -37,6 +37,9 @@ export const SOURCE_META: Record<
 
 /** Tiers backed by a real instrument reading a real place. Everything else
  *  is generated and must never be presented as a measurement. */
+/** F13: the reading kinds a row can carry. */
+export type ReadingKind = "radiation" | "air_quality" | "imu_baro"
+
 export const MEASURED_SOURCES: readonly DataSource[] = ["live", "reported"]
 
 /** Narrowing helper for payloads that predate the field or carry a tier we
@@ -79,6 +82,12 @@ export interface DataLog {
   yaw: number | null
   pressure_baro: number | null
   altitude_baro: number | null
+  // F13 (ADR-0020): each reading's OWN source; null when that reading is
+  // absent. `source` above labels the POSITION — never read it as the
+  // provenance of radiation_value, pm25 or the IMU values.
+  radiation_source: DataSource | null
+  air_quality_source: DataSource | null
+  imu_source: DataSource | null
 }
 
 /** DRF PageNumberPagination envelope for /api/data-logs/. */
@@ -111,6 +120,9 @@ export interface MapPointProperties {
   // popup can cite the derivation rather than only naming the tier.
   source: DataSource
   provenance_note: string
+  // F13: the values' own sources; `source` is the position's (marker colour).
+  radiation_source: DataSource | null
+  air_quality_source: DataSource | null
 }
 
 /** A single GeoJSON Point feature. coordinates are [lng, lat] (GeoJSON spec
@@ -133,8 +145,11 @@ export interface MapFeature {
 export interface MapProvenanceSummary {
   /** Rows the filters select, before the map's point cap. */
   total: number
-  /** tier -> count, over all `total` rows. */
+  /** tier -> count, over all `total` rows. Counts POSITIONS. */
   by_source: Partial<Record<DataSource, number>>
+  /** F13: tier -> count per reading kind, over the same uncapped set. A set
+   *  of live positions with simulated radiation is flagged from here. */
+  readings?: Partial<Record<ReadingKind, Partial<Record<DataSource, number>>>>
   /** Distinct provenance_note strings. Several sites = several notes; never
    *  pick one and present it as the citation for the set. */
   notes: string[]

@@ -32,6 +32,7 @@ import { Panel } from "@/components/console/Panel"
 import { MonoLabel } from "@/components/console/MonoLabel"
 import { MetricTile } from "@/components/console/MetricTile"
 import { SourceChip } from "@/components/console/SourceChip"
+import { provenanceBanner as buildBanner, readingDiffers, sourceBreakdown } from "@/lib/readingProvenance" // 13
 import { FieldMap, type FieldMapHandle } from "@/components/map/FieldMap"
 import {
   getDataLogs,
@@ -40,7 +41,6 @@ import {
   exportCsv,
 } from "@/api/dataLogs"
 import {
-  MEASURED_SOURCES,
   SOURCE_META,
   type DataSource,
   type DataLog,
@@ -75,6 +75,24 @@ function computeStat(values: (number | null)[]): Stat | null {
   return { min: Math.min(...nums), max: Math.max(...nums), avg: sum / nums.length, count: nums.length }
 }
 
+// ─── RANGER V3 START: 13-reading-source ───
+/** A reading value, with its own chip only when its source differs from the
+ *  position's — an unchipped reading cell always means "same as Position". */
+function ReadingCell({ text, reading, position }: {
+  text: string
+  reading: DataSource | null
+  position: DataSource
+}) {
+  if (!readingDiffers(reading, position) || reading === null) return <>{text}</>
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {text}
+      <SourceChip source={reading} note="This reading's own source differs from its position's" />
+    </span>
+  )
+}
+// ─── RANGER V3 END: 13-reading-source ───
+
 const col = createColumnHelper<DataLog>()
 const columns = [
   col.accessor("timestamp", { header: "Timestamp", cell: (c) => fmtTime(c.getValue()) }),
@@ -83,8 +101,10 @@ const columns = [
   // reaches any instrument name, mission name or dose value. A source column
   // parked at the far right after fourteen others is a column nobody scrolls
   // to, which is the same as not having one.
+  // F13: this chip labels the POSITION (ADR-0020). A reading whose own
+  // source differs carries its own chip in its cell (ReadingCell).
   col.accessor("source", {
-    header: "Source",
+    header: "Position",
     cell: (c) => (
       <SourceChip source={c.getValue()} note={c.row.original.provenance_note} />
     ),
@@ -92,14 +112,23 @@ const columns = [
   col.accessor("mission_name", { header: "Mission", cell: (c) => c.getValue() ?? EM_DASH }),
   col.accessor("latitude", { header: "Lat", cell: (c) => fmtCoord(c.getValue()) }),
   col.accessor("longitude", { header: "Lon", cell: (c) => fmtCoord(c.getValue()) }),
-  col.accessor("radiation_value", { header: "Radiation (CPM)", cell: (c) => fmtNum(c.getValue()) }),
+  col.accessor("radiation_value", {
+    header: "Radiation (CPM)",
+    cell: (c) => <ReadingCell text={fmtNum(c.getValue())} reading={c.row.original.radiation_source} position={c.row.original.source} />,
+  }),
   col.accessor("dose_rate_usvh", { header: "Dose (µSv/h)", cell: (c) => fmtNum(c.getValue(), 4) }),
-  col.accessor("pm25", { header: "PM2.5", cell: (c) => fmtNum(c.getValue()) }),
+  col.accessor("pm25", {
+    header: "PM2.5",
+    cell: (c) => <ReadingCell text={fmtNum(c.getValue())} reading={c.row.original.air_quality_source} position={c.row.original.source} />,
+  }),
   col.accessor("pm10", { header: "PM10", cell: (c) => fmtNum(c.getValue()) }),
   col.accessor("roll", { header: "Roll", cell: (c) => fmtNum(c.getValue()) }),
   col.accessor("pitch", { header: "Pitch", cell: (c) => fmtNum(c.getValue()) }),
   col.accessor("yaw", { header: "Yaw", cell: (c) => fmtNum(c.getValue()) }),
-  col.accessor("pressure_baro", { header: "Pressure (hPa)", cell: (c) => fmtNum(c.getValue()) }),
+  col.accessor("pressure_baro", {
+    header: "Pressure (hPa)",
+    cell: (c) => <ReadingCell text={fmtNum(c.getValue())} reading={c.row.original.imu_source} position={c.row.original.source} />,
+  }),
   col.accessor("altitude_baro", { header: "Altitude (m)", cell: (c) => fmtNum(c.getValue()) }),
 ]
 
@@ -225,6 +254,22 @@ export default function DataExplorerPage() {
     () => computeStat((trackFc?.features ?? []).map((f) => f.properties.pm25)),
     [trackFc]
   )
+  // ─── RANGER V3 START: 13-reading-source ───
+  // Which sources each average is made of, from the same features it averages.
+  // An average over SIM and LIVE readings says so instead of passing as one.
+  const radiationMix = useMemo(
+    () => sourceBreakdown((trackFc?.features ?? [])
+      .filter((f) => f.properties.radiation_value !== null)
+      .map((f) => f.properties.radiation_source)),
+    [trackFc]
+  )
+  const pm25Mix = useMemo(
+    () => sourceBreakdown((trackFc?.features ?? [])
+      .filter((f) => f.properties.pm25 !== null)
+      .map((f) => f.properties.air_quality_source)),
+    [trackFc]
+  )
+  // ─── RANGER V3 END: 13-reading-source ───
 
   /**
    * Provenance banner over the FULL filtered set (trackFc), not the current
@@ -236,51 +281,10 @@ export default function DataExplorerPage() {
    *   - a mix including non-measured      -> say mixed, give the count
    *   - everything measured               -> no banner; the default is honest
    */
-  const provenanceBanner = useMemo(() => {
-    const prov = trackFc?.provenance
-    if (!prov || prov.total === 0) return null
-
-    const tiers = Object.keys(prov.by_source) as DataSource[]
-    const nonMeasured = tiers.filter((t) => !MEASURED_SOURCES.includes(t))
-    if (nonMeasured.length === 0) return null
-
-    const nonMeasuredCount = nonMeasured.reduce(
-      (sum, t) => sum + (prov.by_source[t] ?? 0),
-      0
-    )
-
-    // The citation. One distinct note -> quote it. Several -> do NOT pick
-    // one: a banner quoting Boji's n and mean over a set that is mostly
-    // Dukana is a WRONG citation, and a wrong citation reads as
-    // authoritative right up until someone opens Table 3.1. Name the shared
-    // document instead and point at the per-row chips, which are correct.
-    const note =
-      prov.notes.length === 1
-        ? prov.notes[0]
-        : prov.notes.length > 1
-          ? `${prov.notes.length}${prov.notes_truncated ? "+" : ""} distinct ` +
-            `citations across this set — hover a SOURCE chip for the ` +
-            `per-row provenance.`
-          : ""
-
-    if (tiers.length === 1) {
-      const meta = SOURCE_META[tiers[0]] ?? SOURCE_META.simulated
-      return {
-        color: meta.color,
-        headline:
-          `ALL ${prov.total.toLocaleString()} POINTS IN THIS SET ARE ` +
-          `${meta.label.toUpperCase()} — NOT MEASUREMENTS`,
-        note,
-      }
-    }
-    return {
-      color: SOURCE_META.modelled.color,
-      headline:
-        `MIXED PROVENANCE — ${nonMeasuredCount.toLocaleString()} OF ` +
-        `${prov.total.toLocaleString()} POINTS ARE NOT MEASUREMENTS`,
-      note: note || "See the SOURCE column and the marker colours.",
-    }
-  }, [trackFc])
+  // F13: positions AND each reading kind, from the uncapped summary
+  // (lib/readingProvenance). Live positions carrying simulated radiation are
+  // flagged; before F13 they produced no banner at all.
+  const provenanceBanner = useMemo(() => buildBanner(trackFc?.provenance), [trackFc])
 
   /** Tiers actually present in the filtered track, for the map legend. */
   const presentSources = useMemo(() => {
@@ -440,7 +444,7 @@ export default function DataExplorerPage() {
               label="RADIATION"
               value={radiationStat.avg.toFixed(1)}
               unit="CPM avg"
-              sub={`min ${radiationStat.min.toFixed(1)} · max ${radiationStat.max.toFixed(1)} · n=${radiationStat.count}`}
+              sub={`min ${radiationStat.min.toFixed(1)} · max ${radiationStat.max.toFixed(1)} · n=${radiationStat.count}` + (radiationMix ? ` · ${radiationMix}` : "")}
             />
           ) : null}
           {pm25Stat ? (
@@ -449,7 +453,7 @@ export default function DataExplorerPage() {
               value={pm25Stat.avg.toFixed(1)}
               unit="µg/m³ avg"
               bar="var(--color-warn)"
-              sub={`min ${pm25Stat.min.toFixed(1)} · max ${pm25Stat.max.toFixed(1)} · n=${pm25Stat.count}`}
+              sub={`min ${pm25Stat.min.toFixed(1)} · max ${pm25Stat.max.toFixed(1)} · n=${pm25Stat.count}` + (pm25Mix ? ` · ${pm25Mix}` : "")}
             />
           ) : null}
         </div>

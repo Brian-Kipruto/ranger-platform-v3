@@ -1,7 +1,9 @@
 // ─── RANGER V3 START: dashboard SensorStreams ───
 /**
  * SensorStreams — the bottom-row "SENSOR STREAMS" panel (mockup ~375-395).
- * REAL DATA: radiation (CPM) + PM2.5 (µg/m³) series from /api/chart-data/,
+ * DB DATA: radiation (CPM) + PM2.5 (µg/m³) series from /api/chart-data/,
+ * each stream chipped with its readings' OWN sources (F13, ADR-0020). "From
+ * the database" is not "measured": the old "LIVE · REAL" label said both.
  * rendered as filled area sparklines with a dashed WHO-reference threshold line.
  *
  * The page fetches chart-data once and passes the rows down (so the dashboard
@@ -12,7 +14,9 @@
 import { useMemo } from "react"
 import { Panel } from "@/components/console/Panel"
 import { MonoLabel } from "@/components/console/MonoLabel"
-import type { DataLog } from "@/types/dataLog.types"
+import { SourceChip } from "@/components/console/SourceChip"
+import { distinctSources } from "@/lib/readingProvenance"
+import type { DataLog, DataSource } from "@/types/dataLog.types"
 
 interface StreamDef {
   name: string
@@ -22,6 +26,7 @@ interface StreamDef {
   threshold: number
   note: string
   pick: (r: DataLog) => number | null
+  pickSource: (r: DataLog) => DataSource | null // 13
 }
 
 const STREAMS: StreamDef[] = [
@@ -33,6 +38,7 @@ const STREAMS: StreamDef[] = [
     threshold: 300,
     note: "WHO ref threshold shown · nominal",
     pick: (r) => r.radiation_value,
+    pickSource: (r) => r.radiation_source,
   },
   {
     name: "AIR QUALITY · PM2.5",
@@ -42,6 +48,7 @@ const STREAMS: StreamDef[] = [
     threshold: 35,
     note: "WHO 24h guideline 35 µg/m³",
     pick: (r) => r.pm25,
+    pickSource: (r) => r.air_quality_source,
   },
 ]
 
@@ -72,7 +79,7 @@ export function SensorStreams({ rows }: { rows: DataLog[] }) {
   return (
     <Panel
       title="SENSOR STREAMS"
-      right={<MonoLabel size="xs" tone="ok">LIVE · REAL</MonoLabel>}
+      right={<MonoLabel size="xs" tone="dim">FROM DB</MonoLabel>}
     >
       <div className="p-[13px] flex flex-col gap-[14px]">
         {STREAMS.map((s) => {
@@ -80,10 +87,17 @@ export function SensorStreams({ rows }: { rows: DataLog[] }) {
             .map(s.pick)
             .filter((v): v is number => v !== null && v !== undefined && !Number.isNaN(v))
           const built = buildStream(values, s.threshold)
+          // 13: the sources of exactly the values drawn.
+          const sources = distinctSources(
+            windowRows.filter((r) => s.pick(r) !== null).map(s.pickSource)
+          )
           return (
             <div key={s.name}>
               <div className="flex items-baseline justify-between">
-                <MonoLabel size="sm" tone="muted" tracking="0.08em">{s.name}</MonoLabel>
+                <span className="inline-flex items-center gap-1.5">
+                  <MonoLabel size="sm" tone="muted" tracking="0.08em">{s.name}</MonoLabel>
+                  {sources.map((src) => <SourceChip key={src} source={src} />)}
+                </span>
                 <span className="font-mono text-[13px]" style={{ color: s.color }}>
                   {built.last !== null ? built.last.toFixed(1) : "—"}{" "}
                   <span className="text-[9px] text-fg-faint">{s.unit}</span>

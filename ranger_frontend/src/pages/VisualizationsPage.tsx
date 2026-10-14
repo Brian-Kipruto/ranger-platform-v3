@@ -29,7 +29,8 @@ import {
 } from "recharts"
 import { useAuthStore } from "@/stores/authStore"
 import { getChartData, getRobotOptions } from "@/api/dataLogs"
-import type { DataLog, RobotOption } from "@/types/dataLog.types"
+import type { DataLog, DataSource, RobotOption } from "@/types/dataLog.types"
+import { sourceBreakdown } from "@/lib/readingProvenance" // 13
 
 // Illustrative example thresholds — NOT regulatory limits. See file header.
 const EXAMPLE_RADIATION_THRESHOLD = 100 // CPM
@@ -65,12 +66,16 @@ const fmtTooltipLabel = (ms: number): string => {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleString()
 }
 
-function StatLine({ label, stat, unit }: { label: string; stat: Stat | null; unit: string }) {
+function StatLine({ label, stat, unit, mix }: { label: string; stat: Stat | null; unit: string; mix?: string }) {
   if (!stat) return null
+  // 13-reading-source: `mix` = the readings' own sources ("SIM 774 · MOD 10").
+  // These charts had no provenance at all; an avg over modelled and simulated
+  // values must at least say what it averages.
   return (
     <span className="text-xs text-gray-500 mr-4">
       {label}: min {stat.min.toFixed(1)} · max {stat.max.toFixed(1)} · avg{" "}
-      {stat.avg.toFixed(1)} {unit} <span className="text-gray-400">(n={stat.count})</span>
+      {stat.avg.toFixed(1)} {unit}{" "}
+      <span className="text-gray-400">(n={stat.count}{mix ? ` · ${mix}` : ""})</span>
     </span>
   )
 }
@@ -162,6 +167,22 @@ export default function VisualizationsPage() {
     [data]
   )
 
+  // ─── RANGER V3 START: 13-reading-source ───
+  const mix = useMemo(() => {
+    const of = (pick: (d: DataLog) => number | null, src: (d: DataLog) => DataSource | null) =>
+      sourceBreakdown(data.filter((d) => pick(d) !== null).map(src))
+    return {
+      radiation: of((d) => d.radiation_value, (d) => d.radiation_source),
+      pm25: of((d) => d.pm25, (d) => d.air_quality_source),
+      pm10: of((d) => d.pm10, (d) => d.air_quality_source),
+      roll: of((d) => d.roll, (d) => d.imu_source),
+      pitch: of((d) => d.pitch, (d) => d.imu_source),
+      pressure: of((d) => d.pressure_baro, (d) => d.imu_source),
+      altitude: of((d) => d.altitude_baro, (d) => d.imu_source),
+    }
+  }, [data])
+  // ─── RANGER V3 END: 13-reading-source ───
+
   const hasRadiation = stats.radiation !== null
   const hasAir = stats.pm25 !== null || stats.pm10 !== null
   const hasImu = stats.roll !== null || stats.pitch !== null
@@ -245,7 +266,7 @@ export default function VisualizationsPage() {
               <em>example</em> threshold, not a regulatory limit.
             </p>
             <div className="mb-2">
-              <StatLine label="Radiation" stat={stats.radiation} unit="CPM" />
+              <StatLine label="Radiation" stat={stats.radiation} unit="CPM" mix={mix.radiation} />
             </div>
             {hasRadiation ? (
               <ResponsiveContainer width="100%" height={280}>
@@ -284,8 +305,8 @@ export default function VisualizationsPage() {
               <em>example</em> PM2.5 threshold, not a regulatory limit.
             </p>
             <div className="mb-2">
-              <StatLine label="PM2.5" stat={stats.pm25} unit="µg/m³" />
-              <StatLine label="PM10" stat={stats.pm10} unit="µg/m³" />
+              <StatLine label="PM2.5" stat={stats.pm25} unit="µg/m³" mix={mix.pm25} />
+              <StatLine label="PM10" stat={stats.pm10} unit="µg/m³" mix={mix.pm10} />
             </div>
             {hasAir ? (
               <ResponsiveContainer width="100%" height={280}>
@@ -315,8 +336,8 @@ export default function VisualizationsPage() {
             <h2 className="text-lg font-medium">IMU Orientation</h2>
             <p className="text-xs text-gray-500 mb-1">Roll and pitch (degrees) over time.</p>
             <div className="mb-2">
-              <StatLine label="Roll" stat={stats.roll} unit="°" />
-              <StatLine label="Pitch" stat={stats.pitch} unit="°" />
+              <StatLine label="Roll" stat={stats.roll} unit="°" mix={mix.roll} />
+              <StatLine label="Pitch" stat={stats.pitch} unit="°" mix={mix.pitch} />
             </div>
             {hasImu ? (
               <ResponsiveContainer width="100%" height={280}>
@@ -342,8 +363,8 @@ export default function VisualizationsPage() {
               Pressure (hPa) and altitude (m) over time, on separate axes.
             </p>
             <div className="mb-2">
-              <StatLine label="Pressure" stat={stats.pressure} unit="hPa" />
-              <StatLine label="Altitude" stat={stats.altitude} unit="m" />
+              <StatLine label="Pressure" stat={stats.pressure} unit="hPa" mix={mix.pressure} />
+              <StatLine label="Altitude" stat={stats.altitude} unit="m" mix={mix.altitude} />
             </div>
             {hasBaro ? (
               <ResponsiveContainer width="100%" height={280}>
