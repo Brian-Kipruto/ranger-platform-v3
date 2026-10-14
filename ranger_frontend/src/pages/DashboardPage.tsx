@@ -35,7 +35,6 @@ import { CommsLayers } from "@/components/dashboard/CommsLayers"
 import type { DataLog } from "@/types/dataLog.types"
 import {
   KPI_PLACEHOLDERS,
-  TELEMETRY_PLACEHOLDERS,
   FLEET_STATUS_DEMO,
   FLEET_STATUS_DEFAULT,
   BLIP_COORDS_DEMO,
@@ -43,6 +42,7 @@ import {
 // ─── RANGER V3 START: 09-live-console ───
 import { LiveFeed } from "@/components/dashboard/LiveFeed"
 import { useLiveStore, type LivePosition } from "@/stores/liveStore"
+import { liveTelemetrySpecs } from "@/components/dashboard/liveTelemetrySpecs" // 13
 import { SOURCE_META } from "@/types/dataLog.types"
 
 /** No push for this long → the position is shown as STALE, not as live. */
@@ -82,6 +82,7 @@ export default function DashboardPage() {
   // ─── RANGER V3 START: 09-live-console ───
   const accessToken = useAuthStore((s) => s.accessToken)
   const positions = useLiveStore((s) => s.positions)
+  const history = useLiveStore((s) => s.history) // 13-console-readings
   const now = useNow(1_000)
 
   // A different user (or logout) must never see the previous user's
@@ -168,6 +169,17 @@ export default function DashboardPage() {
       : "· DEMO"
   // ─── RANGER V3 END: 09-live-console ───
 
+  // ─── RANGER V3 START: 13-console-readings ───
+  // LIVE TELEMETRY from the selected robot's live rows. No row, stale, or a
+  // reading missing from the newest row -> "—", never an invented number.
+  const selectedPos = positions[selectedId]
+  const selectedStale = selectedPos ? isStale(selectedPos, now) : true
+  const telemetry = useMemo(
+    () => liveTelemetrySpecs(history[selectedId], selectedStale),
+    [history, selectedId, selectedStale]
+  )
+  // ─── RANGER V3 END: 13-console-readings ───
+
   // Map blips from the fleet (live position when pushed, DEMO coords otherwise).
   const blips: FieldMapBlip[] = useMemo(
     () =>
@@ -246,7 +258,7 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-[14px]">
           <LiveTelemetry
             selectedId={selectedId || "—"}
-            telemetry={TELEMETRY_PLACEHOLDERS}
+            telemetry={telemetry /* 13-console-readings */}
           />
           <FleetMini rows={liveFleet} selectedId={selectedId} onSelect={setSelectedId} />
         </div>

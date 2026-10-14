@@ -4,17 +4,18 @@
  * four mini stat tiles (radiation / PM2.5 / pressure / temp), each with a value
  * and an inline SVG sparkline. Driven by the selected robot.
  *
- * DEMO until the live telemetry WebSocket exists (F08+); series come from
- * dashboardPlaceholders. The component itself is source-agnostic — it just
- * renders TelemetrySpec[], so swapping to a live feed is a props change.
+ * F13: driven by the live feed (liveTelemetrySpecs). Each value carries its
+ * reading's own SourceChip; "—" where there is no current value, never an
+ * invented one. The component just renders TelemetrySpec[].
  */
 import { Panel } from "@/components/console/Panel"
 import { MonoLabel } from "@/components/console/MonoLabel"
-import type { TelemetrySpec } from "@/config/dashboardPlaceholders"
+import { SourceChip } from "@/components/console/SourceChip"
+import type { TelemetrySpec } from "@/components/dashboard/liveTelemetrySpecs"
 
 /** Map a numeric series to an SVG polyline points string over a w×h viewbox. */
 function sparkPoints(series: number[], w = 100, h = 16): string {
-  if (series.length === 0) return ""
+  if (series.length < 2) return "" // 13: one point would divide by zero
   const min = Math.min(...series)
   const max = Math.max(...series)
   const rng = max - min || 1
@@ -42,14 +43,19 @@ export function LiveTelemetry({ selectedId, telemetry }: LiveTelemetryProps) {
         {telemetry.map((t) => (
           <div
             key={t.label}
+            title={t.note}
             className="bg-surface-3 border border-border-soft rounded-md px-[11px] py-[10px]"
           >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-1">
               <MonoLabel size="xs" tone="dim" tracking="0.1em">{t.label}</MonoLabel>
-              <span
-                className="w-[6px] h-[6px] rounded-full"
-                style={{ background: t.color }}
-              />
+              {t.source ? (
+                <SourceChip source={t.source} />
+              ) : (
+                <span
+                  className="w-[6px] h-[6px] rounded-full"
+                  style={{ background: t.color }}
+                />
+              )}
             </div>
             <div className="mt-[7px] flex items-baseline gap-1">
               <span className="font-mono text-[19px] font-medium" style={{ color: t.color }}>

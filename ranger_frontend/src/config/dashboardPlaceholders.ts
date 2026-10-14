@@ -46,28 +46,9 @@ export const KPI_PLACEHOLDERS: KpiSpec[] = [
   { label: "SLA UPTIME", value: "99.2", unit: "%", delta: "30-day avg", deltaTone: "ok", bar: "#4be08a", demo: true },
 ]
 
-// ─── Live telemetry (selected robot) ───────────────────────────────
-// Four mini stat tiles with sparklines. DEMO: deterministic series so it
-// doesn't jitter on every render. Real source = live telemetry WS (F08+).
-export interface TelemetrySpec {
-  label: string
-  value: string
-  unit: string
-  color: string
-  series: number[] // sampled values; component renders the sparkline
-}
-
-// deterministic sine-based demo series (no Math.random → stable across renders)
-function demoSeries(base: number, amp: number, n = 24, phase = 0): number[] {
-  return Array.from({ length: n }, (_, i) => base + amp * Math.sin((i + phase) / 3))
-}
-
-export const TELEMETRY_PLACEHOLDERS: TelemetrySpec[] = [
-  { label: "RADIATION", value: "14.2", unit: "CPM", color: "#4be08a", series: demoSeries(14, 2.2, 24, 0) },
-  { label: "PM2.5", value: "29", unit: "µg/m³", color: "#f5a623", series: demoSeries(24, 5, 24, 2) },
-  { label: "PRESSURE", value: "842", unit: "hPa", color: "#36c5f0", series: demoSeries(842, 1.5, 24, 1) },
-  { label: "TEMP", value: "24.6", unit: "°C", color: "#cdd2da", series: demoSeries(24.5, 0.8, 24, 4) },
-]
+// ─── Live telemetry: no longer a placeholder ─────────────────────
+// F13 removed TELEMETRY_PLACEHOLDERS: invented values under a "LIVE" title.
+// The panel now reads the live feed (components/dashboard/liveTelemetrySpecs).
 
 // ─── Fleet (statuses + missions are DEMO; ids/names come from real data) ──
 // DashboardPage derives the real robot list from /api/chart-data/ and merges
