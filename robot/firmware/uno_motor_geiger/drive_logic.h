@@ -49,6 +49,99 @@ inline bool parseM(const char *line, int *left, int *right) {
   return true;
 }
 
+// ─── PPM decoder ───
+// Called from the D3 rising-edge ISR with micros(). Pure, so the noise handling is
+// host-testable. Under motor load the PPM wire picks up spikes (bench, 2026-10-17):
+//  - a rising edge whose pin is already low again when the ISR samples it (levelHigh false)
+//    was a spike shorter than the ISR latency, and is ignored; real PPM edges stay high for
+//    hundreds of microseconds;
+//  - an edge less than PPM_MIN_EDGE_US after the last accepted edge is a glitch and is
+//    ignored without moving lastEdgeUs, so the real edge timing survives a spike;
+//  - a frame is a candidate only if it has exactly PPM_CHANNELS intervals and every one is
+//    within [PPM_CH_MIN_US, PPM_CH_MAX_US]; anything else is counted as rejected;
+//  - a candidate is published only if every channel is within PPM_AGREE_US of the
+//    immediately preceding candidate; otherwise it is counted as disagreed.
+// PPM has no checksum. On the bench (motors on, 2026-10-17) a corrupted frame passed the
+// count and range checks and commanded a full pivot during full reverse. With the agreement
+// check a wrong command needs two consecutive, near-identical corruptions; anything that does
+// pass is within PPM_AGREE_US of the previous frame (about 64 PWM, one frame). Corruption
+// otherwise only costs fresh frames, i.e. a stop after RC_LOST_MS.
+// Readers outside the ISR copy chan/frames/lastFrameUs with interrupts off.
+const uint8_t PPM_CHANNELS = 8;          // FS-X6B PPM frame
+const uint32_t PPM_SYNC_US = 3000;       // interval longer than this = frame gap
+const uint32_t PPM_MIN_EDGE_US = 700;    // real channels are ~1000-2000 us
+const uint16_t PPM_CH_MIN_US = 800;
+const uint16_t PPM_CH_MAX_US = 2200;
+const uint16_t PPM_AGREE_US = 100;       // jitter at rest is about +-16 us
+
+struct PpmDecoder {
+  uint32_t lastEdgeUs;
+  uint8_t idx;
+  uint16_t buf[PPM_CHANNELS];
+  uint16_t chan[PPM_CHANNELS];           // last published frame
+  uint32_t frames;                       // published frames
+  uint32_t lastFrameUs;
+  uint32_t rejected;                     // frames discarded (wrong count or out of range)
+  uint32_t glitches;                     // edges ignored as spikes
+  uint16_t prev[PPM_CHANNELS];           // previous candidate frame
+  bool prevValid;
+  uint32_t disagreed;                    // candidates discarded by the agreement check
+};
+
+// Returns true when this edge published a frame.
+inline bool ppmEdge(PpmDecoder *d, uint32_t nowUs, bool levelHigh) {
+  if (!levelHigh) {
+    d->glitches++;
+    return false;
+  }
+  uint32_t dt = nowUs - d->lastEdgeUs;
+  if (dt < PPM_MIN_EDGE_US) {
+    d->glitches++;
+    return false;
+  }
+  d->lastEdgeUs = nowUs;
+  if (dt > PPM_SYNC_US) {
+    bool published = false;
+    if (d->idx == PPM_CHANNELS) {
+      bool inRange = true;
+      for (uint8_t i = 0; i < PPM_CHANNELS; i++) {
+        if (d->buf[i] < PPM_CH_MIN_US || d->buf[i] > PPM_CH_MAX_US) inRange = false;
+      }
+      if (inRange) {
+        bool agree = d->prevValid;
+        for (uint8_t i = 0; i < PPM_CHANNELS && agree; i++) {
+          int32_t diff = (int32_t)d->buf[i] - (int32_t)d->prev[i];
+          if (diff < -(int32_t)PPM_AGREE_US || diff > (int32_t)PPM_AGREE_US) agree = false;
+        }
+        for (uint8_t i = 0; i < PPM_CHANNELS; i++) d->prev[i] = d->buf[i];
+        d->prevValid = true;
+        if (agree) {
+          for (uint8_t i = 0; i < PPM_CHANNELS; i++) d->chan[i] = d->buf[i];
+          d->frames++;
+          d->lastFrameUs = nowUs;
+          published = true;
+        } else {
+          d->disagreed++;
+        }
+      } else {
+        d->rejected++;
+        d->prevValid = false;
+      }
+    } else if (d->idx != 0) {
+      d->rejected++;
+      d->prevValid = false;
+    }
+    d->idx = 0;
+    return published;
+  }
+  if (d->idx < PPM_CHANNELS) {
+    d->buf[d->idx++] = (uint16_t)dt;
+  } else {
+    d->idx = PPM_CHANNELS + 1;             // too many intervals: frame will be rejected
+  }
+  return false;
+}
+
 // Same formula as Arduino map().
 inline long mapl(long x, long inMin, long inMax, long outMin, long outMax) {
   return (x - inMin) * (outMax - outMin) / (inMax - inMin) + outMin;

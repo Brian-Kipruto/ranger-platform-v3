@@ -5,9 +5,10 @@
 //
 // Serial contract, 115200 baud, '\n'-terminated lines:
 //   Orin -> Uno  M,<left>,<right>       signed PWM, each in [-255, 255]
-//   Uno -> Orin  S,<ms>,<mode>,<rc_ok>,<left>,<right>,<m_age_ms>,<rc_age_ms>
+//   Uno -> Orin  S,<ms>,<mode>,<rc_ok>,<left>,<right>,<m_age_ms>,<rc_age_ms>,<ppm_rejected>,<ppm_glitches>,<ppm_disagreed>
 //                  every 1 s and immediately on a mode change;
-//                  mode X|R|N|W (see drive_logic.h); ages are -1 if never seen
+//                  mode X|R|N|W (see drive_logic.h); ages are -1 if never seen;
+//                  ppm_* counters are cumulative since boot
 //   Uno -> Orin  G,<counts>             counts since the previous G, every 1 s,
 //                  only when GEIGER_ENABLED (tube is dead: ADR-0021)
 #include "drive_logic.h"
@@ -28,35 +29,16 @@ const int right_L_EN = 11;
 
 const uint8_t GEIGER_PIN = 2;               // INT0
 const uint8_t PPM_PIN = 3;                  // INT1
-const uint8_t PPM_CHANNELS = 8;             // FS-X6B PPM frame
-const unsigned long PPM_SYNC_US = 3000;
 const unsigned long REPORT_MS = 1000;
 
-volatile uint16_t ppmChan[PPM_CHANNELS];
-volatile uint32_t ppmFrames = 0;
-volatile unsigned long ppmLastFrameUs = 0;
-uint16_t ppmBuf[PPM_CHANNELS];
-uint8_t ppmIdx = 0;
-unsigned long ppmLastEdgeUs = 0;
+// ISR-owned; loop() copies it with interrupts off (cli() is a compiler memory barrier).
+drive::PpmDecoder ppm = {};
 
 volatile uint32_t geigerCount = 0;
 
 void ppmIsr() {
-  unsigned long now = micros();
-  unsigned long d = now - ppmLastEdgeUs;
-  ppmLastEdgeUs = now;
-  if (d > PPM_SYNC_US) {
-    if (ppmIdx == PPM_CHANNELS) {           // complete frames only
-      for (uint8_t i = 0; i < PPM_CHANNELS; i++) ppmChan[i] = ppmBuf[i];
-      ppmFrames++;
-      ppmLastFrameUs = now;
-    }
-    ppmIdx = 0;
-  } else if (ppmIdx < PPM_CHANNELS) {
-    ppmBuf[ppmIdx++] = (uint16_t)d;
-  } else {
-    ppmIdx = PPM_CHANNELS + 1;              // too many pulses: discard this frame
-  }
+  bool levelHigh = (PIND & _BV(PD3)) != 0;  // sample D3 first: a spike is already gone
+  drive::ppmEdge(&ppm, micros(), levelHigh);
 }
 
 void geigerIsr() { geigerCount++; }
@@ -155,13 +137,16 @@ void loop() {
   unsigned long nowMs = millis();
   readSerial(nowMs);
 
-  uint16_t ch[PPM_CHANNELS];
-  uint32_t frames;
+  uint16_t ch[drive::PPM_CHANNELS];
+  uint32_t frames, rejected, glitches, disagreed;
   unsigned long lastFrameUs;
   noInterrupts();
-  for (uint8_t i = 0; i < PPM_CHANNELS; i++) ch[i] = ppmChan[i];
-  frames = ppmFrames;
-  lastFrameUs = ppmLastFrameUs;
+  for (uint8_t i = 0; i < drive::PPM_CHANNELS; i++) ch[i] = ppm.chan[i];
+  frames = ppm.frames;
+  lastFrameUs = ppm.lastFrameUs;
+  rejected = ppm.rejected;
+  glitches = ppm.glitches;
+  disagreed = ppm.disagreed;
   interrupts();
 
   unsigned long rcAgeUs = micros() - lastFrameUs;
@@ -190,7 +175,10 @@ void loop() {
     Serial.print(','); Serial.print(left);
     Serial.print(','); Serial.print(right);
     Serial.print(','); Serial.print(mSeen ? (long)mAgeMs : -1L);
-    Serial.print(','); Serial.println(frames > 0 ? (long)(rcAgeUs / 1000UL) : -1L);
+    Serial.print(','); Serial.print(frames > 0 ? (long)(rcAgeUs / 1000UL) : -1L);
+    Serial.print(','); Serial.print(rejected);
+    Serial.print(','); Serial.print(glitches);
+    Serial.print(','); Serial.println(disagreed);
     lastMode = (char)mode;
   }
   if (periodic) {
