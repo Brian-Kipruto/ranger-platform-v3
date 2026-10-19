@@ -103,6 +103,11 @@ class Robot(models.Model):
 
     class Meta:
         ordering = ["name"]
+        # ─── RANGER V3 START: 14-teleop ───
+        permissions = (
+            ("drive_robot", "Can drive a robot from the console"),
+        )
+        # ─── RANGER V3 END: 14-teleop ───
 
     def __str__(self) -> str:
         return f"{self.name} ({self.robot_id_str})"
