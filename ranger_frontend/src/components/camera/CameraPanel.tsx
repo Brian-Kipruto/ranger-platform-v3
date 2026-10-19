@@ -9,68 +9,163 @@
  * SensorLog). Video is MB/s of binary and must not go through the JSON/
  * WebSocket sensor path. Great on LAN; degrades over LTE (drop fps/res).
  *
- * URL comes from VITE_VIDEO_SERVER_URL so localhost-dev vs on-robot (the
- * Orin's address) is a one-line .env change, no code edit.
+ * Config, the robot pairing and the frozen-frame watchdog live in lib/video.ts.
  */
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Panel } from "@/components/console/Panel"
 import { MonoLabel } from "@/components/console/MonoLabel"
+// ─── RANGER V3 START: 14-video ───
+import { VIDEO_CONFIG, useFeedLiveness, type FeedState } from "@/lib/video"
 
-const VIDEO_BASE =
-  (import.meta.env.VITE_VIDEO_SERVER_URL as string | undefined) ??
-  "http://localhost:8080"
+const STATUS: Record<FeedState, { text: string; tone: "ok" | "warn" | "alert" }> = {
+  connecting: { text: "● CONNECTING", tone: "warn" },
+  live: { text: "● LIVE", tone: "ok" },
+  stale: { text: "● FEED STALE", tone: "alert" },
+}
 
-// Orbbec Gemini 2 color topic (confirmed via `ros2 topic list`).
-const COLOR_TOPIC = "/camera/color/image_raw"
-
-const STREAM_URL = `${VIDEO_BASE}/stream?topic=${COLOR_TOPIC}&type=mjpeg`
+function fmtTime(ms: number | null): string {
+  return ms === null ? "never" : new Date(ms).toLocaleTimeString([], { hour12: false })
+}
 
 interface CameraPanelProps {
   /** header label for the robot this feed belongs to */
   robotLabel?: string
 }
 
-export function CameraPanel({ robotLabel = "RANGER PRIME" }: CameraPanelProps) {
-  const [status, setStatus] = useState<"live" | "offline">("live")
+export function CameraPanel({ robotLabel }: CameraPanelProps) {
+  if (!VIDEO_CONFIG.ok) {
+    return (
+      <Panel
+        title={`${robotLabel ?? "CAMERA"} · COLOR`}
+        right={<MonoLabel size="xs" tone="alert">● NOT CONFIGURED</MonoLabel>}
+      >
+        <div className="relative bg-black aspect-[4/3] flex flex-col items-center justify-center gap-3 p-6">
+          <MonoLabel size="md" tone="soft" tracking="0.13em">VIDEO NOT CONFIGURED</MonoLabel>
+          {VIDEO_CONFIG.problems.map((p) => (
+            <p key={p} className="font-mono text-[11px] text-alert text-center">{p}</p>
+          ))}
+          <p className="font-mono text-[11px] text-fg-faint max-w-[380px] text-center leading-[1.7]">
+            Set both in ranger_frontend/.env and restart the dev server.
+          </p>
+        </div>
+      </Panel>
+    )
+  }
+  return (
+    <LiveCamera
+      robotLabel={robotLabel ?? VIDEO_CONFIG.robotId}
+      baseUrl={VIDEO_CONFIG.baseUrl}
+      streamUrl={VIDEO_CONFIG.streamUrl}
+      snapshotUrl={VIDEO_CONFIG.snapshotUrl}
+    />
+  )
+}
+
+/**
+ * An MJPEG <img> that closes its HTTP connection when it unmounts. Chrome does
+ * not abort an in-flight image load when the element is removed, so a removed
+ * MJPEG <img> keeps streaming and web_video_server keeps JPEG-encoding for it
+ * (proven: two live streams from one /mission tab after a reconnect, ~1/3 of an
+ * Orin core each). Pointing src at an empty data URI aborts the load. Covers
+ * both reconnects (keyed remount) and leaving the page.
+ *
+ * The <img> is created per effect run, not rendered by React: StrictMode runs
+ * mount -> cleanup -> mount in dev, and reusing one element left it aborted
+ * ("NO STREAM" while LIVE). Each run owns its element and its error handler, so
+ * the abort's own error event goes to a handler that is already detached.
+ */
+function MjpegStream({ src, alt, onError }: { src: string; alt: string; onError: () => void }) {
+  const box = useRef<HTMLDivElement>(null)
+  const onErrorRef = useRef(onError)
+  useEffect(() => {
+    onErrorRef.current = onError
+  }, [onError])
+
+  useEffect(() => {
+    const parent = box.current
+    if (!parent) return
+    const img = document.createElement("img")
+    img.alt = alt
+    img.className = "w-full h-full object-contain"
+    img.onerror = () => onErrorRef.current()
+    img.src = src
+    parent.appendChild(img)
+    return () => {
+      img.onerror = null
+      img.src = "data:," // aborts the MJPEG load, closing the connection
+      img.remove()
+    }
+  }, [src, alt])
+
+  return <div ref={box} className="w-full h-full" />
+}
+
+interface LiveCameraProps {
+  robotLabel: string
+  baseUrl: string
+  streamUrl: string
+  snapshotUrl: string
+}
+
+function LiveCamera({ robotLabel, baseUrl, streamUrl, snapshotUrl }: LiveCameraProps) {
+  const { state, streamKey, lastOkAt, reconnect } = useFeedLiveness(snapshotUrl)
+  // the <img> that errored; a new streamKey means a fresh attempt
+  const [erroredKey, setErroredKey] = useState<number | null>(null)
+  const imgFailed = erroredKey === streamKey
+  const status = STATUS[state]
 
   return (
     <Panel
       title={`${robotLabel} · COLOR`}
-      right={
-        <MonoLabel size="xs" tone={status === "live" ? "ok" : "alert"}>
-          {status === "live" ? "● LIVE" : "● OFFLINE"}
-        </MonoLabel>
-      }
+      right={<MonoLabel size="xs" tone={status.tone}>{status.text}</MonoLabel>}
     >
-      <div className="relative bg-black aspect-video flex items-center justify-center">
-        {status === "live" ? (
-          // key forces a fresh <img> (reconnect) if we ever toggle back to live
-          <img
-            key="camera-stream"
-            src={STREAM_URL}
+      <div
+        className={
+          "relative bg-black aspect-[4/3] flex items-center justify-center " +
+          (state === "stale" ? "outline outline-2 -outline-offset-2 outline-alert" : "")
+        }
+      >
+        {!imgFailed ? (
+          <MjpegStream
+            key={streamKey}
+            // _r forces a new HTTP connection on reconnect; web_video_server ignores it
+            src={`${streamUrl}&_r=${streamKey}`}
             alt={`${robotLabel} live camera feed`}
-            className="w-full h-full object-contain"
-            onError={() => setStatus("offline")}
+            onError={() => setErroredKey(streamKey)}
           />
-        ) : (
-          <div className="flex flex-col items-center gap-3 py-[60px]">
-            <MonoLabel size="md" tone="soft" tracking="0.13em">
-              CAMERA OFFLINE
-            </MonoLabel>
-            <p className="font-mono text-[11px] text-fg-faint max-w-[360px] text-center leading-[1.7]">
-              No stream from {VIDEO_BASE}. Confirm the camera driver and
-              web_video_server are running on the robot / dev host.
+        ) : null}
+
+        {state === "stale" ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60">
+            <MonoLabel size="md" tone="alert" tracking="0.13em">FEED STALE · LAST FRAME</MonoLabel>
+            <p className="font-mono text-[11px] text-fg-soft text-center leading-[1.7]">
+              Do not drive on this image.
+              <br />
+              No new frame since {fmtTime(lastOkAt)} · retrying {baseUrl}
             </p>
             <button
-              onClick={() => setStatus("live")}
+              onClick={reconnect}
               className="font-mono text-[10px] px-3 py-1 rounded border border-border text-fg-soft hover:text-fg"
             >
-              RETRY
+              RECONNECT
             </button>
           </div>
-        )}
+        ) : null}
+
+        {imgFailed && state !== "stale" ? (
+          <div className="flex flex-col items-center gap-3">
+            <MonoLabel size="sm" tone="soft" tracking="0.13em">NO STREAM FROM {baseUrl}</MonoLabel>
+            <button
+              onClick={reconnect}
+              className="font-mono text-[10px] px-3 py-1 rounded border border-border text-fg-soft hover:text-fg"
+            >
+              RECONNECT
+            </button>
+          </div>
+        ) : null}
       </div>
     </Panel>
   )
 }
+// ─── RANGER V3 END: 14-video ───
 // ─── RANGER V3 END: camera panel ───

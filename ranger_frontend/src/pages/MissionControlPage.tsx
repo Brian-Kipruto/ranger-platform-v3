@@ -1,27 +1,64 @@
 // ─── RANGER V3 START: mission control page ───
 /**
- * MissionControlPage — first real cut of Mission Control. For now it hosts the
- * live camera feed (Orbbec color via ROS web_video_server). The mission map,
- * waypoint list, and command panel land in later passes; this replaces the
- * StubPage so the screen shows real live data instead of a placeholder.
+ * MissionControlPage — the "see and drive" screen for the robot that owns the
+ * video feed (F14 fork 7). Camera large, DrivePanel beside it. The robot is
+ * VITE_VIDEO_ROBOT_ID, never a picker: one video server = one robot, so the
+ * camera and the drive panel can't point at different robots. The dashboard
+ * DRIVE panel stays; the one-driver lease (4409) makes two placements safe.
+ * The mission map, waypoint list, and command panel land in later passes.
  */
 import { MonoLabel } from "@/components/console/MonoLabel"
 import { CameraPanel } from "@/components/camera/CameraPanel"
+// ─── RANGER V3 START: 14-mission-drive ───
+import { Panel } from "@/components/console/Panel"
+import { DrivePanel } from "@/components/dashboard/DrivePanel"
+import { useAuthStore } from "@/stores/authStore"
+import { VIDEO_CONFIG } from "@/lib/video"
+
+function DriveNote({ title, lines }: { title: string; lines: string[] }) {
+  return (
+    <Panel title="DRIVE">
+      <div className="flex flex-col gap-2 p-[13px]">
+        <MonoLabel size="sm" tone="soft" tracking="0.13em">{title}</MonoLabel>
+        {lines.map((l) => (
+          <p key={l} className="font-mono text-[11px] text-fg-faint leading-[1.7]">{l}</p>
+        ))}
+      </div>
+    </Panel>
+  )
+}
+// ─── RANGER V3 END: 14-mission-drive ───
 
 export default function MissionControlPage() {
+  // ─── RANGER V3 START: 14-mission-drive ───
+  const canDrive = useAuthStore((s) => !!s.user && s.hasPermission("core.drive_robot"))
+  const robotId = VIDEO_CONFIG.ok ? VIDEO_CONFIG.robotId : null
+
+  let drive
+  if (!robotId) {
+    drive = <DriveNote title="DRIVE UNAVAILABLE" lines={["No robot is paired with the video feed.", "Set VITE_VIDEO_ROBOT_ID."]} />
+  } else if (!canDrive) {
+    drive = <DriveNote title="NO DRIVE PERMISSION" lines={["Needs core.drive_robot (Drivers group).", "Ask an admin to run grant_drive."]} />
+  } else {
+    // keyed by robot: a config change tears the drive session down
+    drive = <DrivePanel key={robotId} robotId={robotId} />
+  }
+  // ─── RANGER V3 END: 14-mission-drive ───
+
   return (
     <div className="p-[18px] flex flex-col gap-[18px]">
       <div className="flex items-center justify-between">
         <MonoLabel size="md" tone="soft" tracking="0.13em">
           MSN · MISSION CONTROL
         </MonoLabel>
-        <MonoLabel size="xs" tone="ok">● LIVE FEED</MonoLabel>
       </div>
 
-      {/* Camera feed — the first real Mission Control element. */}
-      <div className="max-w-[860px]">
-        <CameraPanel robotLabel="RANGER PRIME" />
+      {/* ─── RANGER V3 START: 14-mission-drive ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-[14px] items-start">
+        <CameraPanel />
+        {drive}
       </div>
+      {/* ─── RANGER V3 END: 14-mission-drive ─── */}
     </div>
   )
 }
