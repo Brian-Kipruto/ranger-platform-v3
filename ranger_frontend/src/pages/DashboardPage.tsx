@@ -41,6 +41,7 @@ import {
 } from "@/config/dashboardPlaceholders"
 // ─── RANGER V3 START: 09-live-console ───
 import { LiveFeed } from "@/components/dashboard/LiveFeed"
+import { DrivePanel } from "@/components/dashboard/DrivePanel" // 14-teleop
 import { useLiveStore, type LivePosition } from "@/stores/liveStore"
 import { liveTelemetrySpecs } from "@/components/dashboard/liveTelemetrySpecs" // 13
 import { SOURCE_META } from "@/types/dataLog.types"
@@ -81,6 +82,8 @@ export default function DashboardPage() {
   const accent = user?.organization?.theme_color ?? "#0ea5e9"
   // ─── RANGER V3 START: 09-live-console ───
   const accessToken = useAuthStore((s) => s.accessToken)
+  // 14-teleop: depends on `user` so the panel appears once /me has loaded.
+  const canDrive = useAuthStore((s) => !!s.user && s.hasPermission("core.drive_robot"))
   const positions = useLiveStore((s) => s.positions)
   const history = useLiveStore((s) => s.history) // 13-console-readings
   const now = useNow(1_000)
@@ -261,6 +264,10 @@ export default function DashboardPage() {
             telemetry={telemetry /* 13-console-readings */}
           />
           <FleetMini rows={liveFleet} selectedId={selectedId} onSelect={setSelectedId} />
+          {/* ─── RANGER V3 START: 14-teleop ─── */}
+          {/* Keyed by robot: switching robots tears the drive session down. */}
+          {canDrive && selectedId ? <DrivePanel key={selectedId} robotId={selectedId} /> : null}
+          {/* ─── RANGER V3 END: 14-teleop ─── */}
         </div>
       </div>
 
