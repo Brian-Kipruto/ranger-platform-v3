@@ -1,0 +1,5 @@
+# RANGER V3 (F14 5a): ModemManager must not probe the 6WD's Uno. It sends AT
+# commands to new ttyACM devices, which lands on the Uno's RX pin and can hold the
+# port while uno_bridge needs it. Installed to /etc/udev/rules.d/ (install record in
+# docs/features/14-*.md).
+ATTRS{idVendor}=="2341", ATTRS{idProduct}=="0043", ENV{ID_MM_DEVICE_IGNORE}="1"
