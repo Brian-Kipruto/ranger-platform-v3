@@ -122,9 +122,11 @@ fi
 # ─── RANGER V3 END: 13-sensor-sim ───
 # ─── RANGER V3 START: 14-stack ───
 # rosbridge has no auth and the feed none by design: never start them unless the
-# firewall limits both ports to the console PC (F14 4d).
-systemctl is-active --quiet ranger-firewall \
-  || fail "ranger-firewall is not active — rosbridge and video would be open to the whole network. Install robot/config/ranger-firewall.{sh,service} (F14 4d)"
+# firewall limits both ports to the console PC (F14 4d). The rules themselves
+# are checked: the unit can be active while something else wiped them (it was:
+# netfilter-persistent at boot).
+sudo -n /usr/local/sbin/ranger-firewall check 2>/dev/null \
+  || fail "firewall rules not in place — rosbridge and video would be open to the whole network. sudo systemctl restart ranger-firewall; install robot/config/ranger-firewall.{sh,service} and sudoers-ranger-firewall (F14 4d)"
 if [ "$DRIVE" = 1 ]; then
   for f in uno_bridge.py uno_protocol.py; do
     [ -f "$DIR/$f" ] || fail "$DIR/$f missing — scp robot/$f from the PC"
@@ -210,7 +212,8 @@ tmux set-environment -t "$SESSION" RANGER_MODE "$MARK"   # read by scripts/dev_u
 
 if [ "$MODE" = sim ]; then
   win socat "socat -d -d pty,raw,echo=0,link=/tmp/gps_sim pty,raw,echo=0,link=/tmp/gps_feed"
-  for _ in $(seq 20); do [ -e /tmp/gps_sim ] && break; sleep 0.25; done
+  # 15 s: the window sources ROS first, which took over 5 s on a cold boot (F14 4d).
+  for _ in $(seq 60); do [ -e /tmp/gps_sim ] && break; sleep 0.25; done
   [ -e /tmp/gps_sim ] || fail "socat did not create /tmp/gps_sim — tmux attach -t $SESSION"
   win gps "python3 $DIR/gps_node.py --ros-args -p port:=/tmp/gps_sim"
 else

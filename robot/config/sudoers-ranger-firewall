@@ -1,0 +1,6 @@
+# RANGER V3 START: 14-firewall
+# Orin: lets stack_up.sh confirm the firewall rules are in place before it
+# starts rosbridge and video (F14 4d). Exactly one read-only command.
+# Installed as /etc/sudoers.d/ranger-firewall, mode 0440, checked by visudo -c.
+brian ALL=(root) NOPASSWD: /usr/local/sbin/ranger-firewall check
+# RANGER V3 END: 14-firewall

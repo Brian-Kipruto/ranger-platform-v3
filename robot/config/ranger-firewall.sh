@@ -8,7 +8,10 @@
 #
 # Installed as /usr/local/sbin/ranger-firewall, run by ranger-firewall.service
 # at boot (robot/config/). See docs/features/14-*.md for install and proof.
-#   ranger-firewall start | stop | status
+#   ranger-firewall start | stop | status | check
+#   check: exit 0 only if the INPUT jump and the chain's final REJECT are in
+#   place for IPv4 and IPv6 — the rules themselves, not the service state.
+#   stack_up.sh runs it via sudo -n (robot/config/sudoers-ranger-firewall).
 set -euo pipefail
 
 PORTS=9090,8080
@@ -36,10 +39,17 @@ remove() {  # remove <iptables|ip6tables>
   "$ipt" -X "$CHAIN" 2>/dev/null || true
 }
 
+check() {  # check <iptables|ip6tables>
+  local ipt=$1
+  "$ipt" -C INPUT -p tcp -m multiport --dports "$PORTS" -j "$CHAIN" 2>/dev/null \
+    && "$ipt" -C "$CHAIN" -p tcp -j REJECT --reject-with tcp-reset 2>/dev/null
+}
+
 case "${1:-start}" in
   start)  apply iptables "${ALLOW[@]}"; apply ip6tables ;;   # IPv6: no peer allowed
   stop)   remove iptables; remove ip6tables ;;
   status) iptables -S "$CHAIN"; ip6tables -S "$CHAIN" ;;
-  *) echo "usage: $0 start|stop|status" >&2; exit 2 ;;
+  check)  check iptables && check ip6tables ;;
+  *) echo "usage: $0 start|stop|status|check" >&2; exit 2 ;;
 esac
 # ─── RANGER V3 END: 14-firewall ───

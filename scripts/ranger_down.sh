@@ -4,10 +4,12 @@
 # the relay a zero on a clean exit), then the sessions go.
 #   PC tmux session ranger-pc (scripts/ranger_up.sh)
 #   Orin tmux session ranger (stack_up.sh) — skipped with --pc-only
-# Usage: scripts/ranger_down.sh [--pc-only] [--pause]      ORIN_HOST overrides the Orin address
+# Usage: scripts/ranger_down.sh [--pc-only] [--pause]
+#   ORIN_HOST overrides the Orin address; otherwise the tether, then the Wi-Fi
+#   address, whichever answers (4d: the tether may be unplugged).
 set -uo pipefail
 
-ORIN="brian@${ORIN_HOST:-192.168.55.1}"
+ORIN=""
 PC_ONLY=0
 PAUSE=0
 for a in "$@"; do
@@ -35,10 +37,13 @@ stop_session() {  # stop_session <label> <session> [ssh target]
 
 stop_session "PC services (ranger-pc)" ranger-pc
 if [ "$PC_ONLY" = 0 ]; then
-  if ssh -o BatchMode=yes -o ConnectTimeout=5 "$ORIN" true 2>/dev/null; then
+  for h in ${ORIN_HOST:-192.168.55.1 192.168.0.50}; do
+    if ssh -o BatchMode=yes -o ConnectTimeout=5 "brian@$h" true 2>/dev/null; then ORIN="brian@$h"; break; fi
+  done
+  if [ -n "$ORIN" ]; then
     stop_session "Orin stack (ranger)" ranger "$ORIN"
   else
-    echo "   WARN: Orin $ORIN unreachable — its stack (if any) is still running" >&2
+    echo "   WARN: Orin unreachable on ${ORIN_HOST:-192.168.55.1 or 192.168.0.50} — its stack (if any) is still running" >&2
   fi
 fi
 echo "   Docker (Postgres + Redis) left running."

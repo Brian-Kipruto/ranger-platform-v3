@@ -1,9 +1,13 @@
 # ─── RANGER V3 START: 14-firewall ───
 # Orin: installed as /etc/systemd/system/ranger-firewall.service
 # Rules in place before any interface comes up, so there is no open window.
+# After netfilter-persistent: it restores /etc/iptables/rules.v4 at boot with
+# iptables-restore, which replaces the whole filter table and wiped these rules
+# when they went in first (F14 4d). stack_up.sh checks the rules, not this unit.
 [Unit]
 Description=RANGER: rosbridge and video reachable only from the console PC (F14 4d)
 DefaultDependencies=no
+After=netfilter-persistent.service
 Before=network-pre.target
 Wants=network-pre.target
 
