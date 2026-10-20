@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─── RANGER V3 START: dev-scripts ───
-# PC: bring up everything the live console needs, then print the three
-# commands you run and watch yourself (runserver, ros_ingest, npm run dev).
+# PC: bring up everything the live console needs, then print the commands you
+# run and watch yourself (runserver, ros_ingest, npm run dev, teleop_relay).
 #
 # Order matters (F09 retrospective: setup cost more than code):
 #   1. Orin reachable, key-based ssh       (no password prompt → exact clock)
@@ -13,8 +13,12 @@
 #   5. Orin stack running in the requested mode, started over ssh in tmux
 #      (survives this script exiting); restarted fresh if the clock jumped
 #      or the mode differs. rosbridge :9090 checked from the PC.
+#      F14: the stack also runs uno_bridge (drive) and the camera +
+#      web_video_server (video); the camera feed is checked from the PC and
+#      ranger_frontend/.env is checked against this link's video URL.
 #
 # Usage: scripts/dev_up.sh [sim|live] [nairobi|rabat] [usb|wifi] [--set-clock]
+#                         [--no-drive] [--no-video]
 #        default: sim nairobi usb  (from anywhere)
 #   site: in sim, where nmea_sim puts the fix; in both modes, the --region the
 #   printed ros_ingest command uses (nairobi -> kenya, the default). F11.
@@ -22,17 +26,23 @@
 #   travel router (ORIN_WIFI_HOST below). ORIN_HOST in the environment wins. F12.
 #   --set-clock: set the Orin's clock from the PC with sudo (TS-029) instead of
 #   requiring NTP sync. Fallback only; it hides a broken time server.
+#   --no-drive / --no-video: start the stack without uno_bridge / without the
+#   camera and web_video_server (F14). Default: both, and missing hardware fails.
 # Orin windows: ssh -t brian@192.168.55.1 tmux attach -t ranger
 set -euo pipefail
 
 # ─── RANGER V3 START: 12-field-time ───
-USAGE="usage: $0 [sim|live] [nairobi|rabat] [usb|wifi] [--set-clock]"
+USAGE="usage: $0 [sim|live] [nairobi|rabat] [usb|wifi] [--set-clock] [--no-drive] [--no-video]"
 usage() { echo "$USAGE" >&2; exit 2; }
 SET_CLOCK=0
+DRIVE=1   # 14-stack
+VIDEO=1   # 14-stack
 POS=()
 for a in "$@"; do
   case "$a" in
     --set-clock) SET_CLOCK=1 ;;
+    --no-drive) DRIVE=0 ;;   # 14-stack
+    --no-video) VIDEO=0 ;;   # 14-stack
     -*) usage ;;
     *) POS+=("$a") ;;
   esac
@@ -64,6 +74,18 @@ INGEST="python manage.py ros_ingest"
 [ "$SITE" = rabat ] && INGEST="$INGEST --region rabat"
 # ─── RANGER V3 END: 11-ingest-region ───
 [ "$ORIN_HOST" != "$ORIN_USB_HOST" ] && INGEST="$INGEST --host $ORIN_HOST"   # F12
+# ─── RANGER V3 START: 14-stack ───
+# Same marker suffixes as stack_up.sh, so a session missing a part is restarted.
+FLAGS=""
+if [ "$DRIVE" = 1 ]; then WANT="$WANT+drive"; else FLAGS="$FLAGS --no-drive"; fi
+if [ "$VIDEO" = 1 ]; then WANT="$WANT+video"; else FLAGS="$FLAGS --no-video"; fi
+# web_video_server listens only on the address the console reaches the Orin by.
+STACK_ARGS="$STACK_ARGS$FLAGS --video-bind $ORIN_HOST"
+VIDEO_URL="http://${ORIN_HOST}:8080"
+ROBOT_ID=RANGER-PRIME-001
+RELAY="python manage.py teleop_relay --robot $ROBOT_ID"
+[ "$ORIN_HOST" != "$ORIN_USB_HOST" ] && RELAY="$RELAY --host $ORIN_HOST"
+# ─── RANGER V3 END: 14-stack ───
 ORIN="brian@${ORIN_HOST}"
 MAX_OFFSET_S=0.5
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -191,12 +213,38 @@ fi
 timeout 3 bash -c "</dev/tcp/${ORIN_HOST}/9090" 2>/dev/null \
   || fail "${ORIN_HOST}:9090 not reachable from the PC"
 ok "rosbridge ${ORIN_HOST}:9090 reachable"
+# ─── RANGER V3 START: 14-stack ───
+if [ "$VIDEO" = 1 ]; then
+  # One long probe: an abandoned /snapshot stays queued on web_video_server (F14 5b).
+  curl -s -o /dev/null --max-time 10 "${VIDEO_URL}/snapshot?topic=/camera/color/image_raw&quality=50" \
+    || fail "no camera frame from ${VIDEO_URL} within 10 s — ssh -t $ORIN tmux attach -t ranger (camera, video windows)"
+  ok "camera frames at ${VIDEO_URL}"
+  # The console reads the feed URL from .env at Vite startup; a stale one shows
+  # "retrying http://localhost:8080" (F14 5b).
+  ENV_FILE="${REPO}/ranger_frontend/.env"
+  # || true: a missing .env must warn below, not abort under set -e + pipefail
+  env_url=$(sed -n 's/^VITE_VIDEO_SERVER_URL=//p' "$ENV_FILE" 2>/dev/null | tail -1 || true)
+  env_robot=$(sed -n 's/^VITE_VIDEO_ROBOT_ID=//p' "$ENV_FILE" 2>/dev/null | tail -1 || true)
+  if [ "$env_url" != "$VIDEO_URL" ] || [ "$env_robot" != "$ROBOT_ID" ]; then
+    warn "${ENV_FILE}: VITE_VIDEO_SERVER_URL='${env_url}' VITE_VIDEO_ROBOT_ID='${env_robot}', want '${VIDEO_URL}' '${ROBOT_ID}'. Fix it, then (re)start npm run dev."
+  else
+    ok ".env video URL matches (${VIDEO_URL}, ${ROBOT_ID})"
+  fi
+fi
+# ─── RANGER V3 END: 14-stack ───
 
 cat <<NEXT
 
-── Ready. Three terminals, venv active (source ${REPO}/.venv/bin/activate):
+── Ready. Terminals, venv active (source ${REPO}/.venv/bin/activate):
    T1  cd ${REPO}/ranger_backend && python manage.py runserver      # banner: Daphne
    T2  cd ${REPO}/ranger_backend && ${INGEST}
    T3  cd ${REPO}/ranger_frontend && npm run dev                    # http://localhost:5173
 NEXT
+# ─── RANGER V3 START: 14-stack ───
+if [ "$DRIVE" = 1 ]; then
+  echo "   T4  cd ${REPO}/ranger_backend && ${RELAY}   # drive; wheels on blocks until 4d"
+fi
+[ "$VIDEO" = 1 ] && echo "   Mission Control: http://localhost:5173/mission"
+true
+# ─── RANGER V3 END: 14-stack ───
 # ─── RANGER V3 END: dev-scripts ───

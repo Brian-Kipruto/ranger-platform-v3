@@ -8,6 +8,8 @@
 #   live: gps_node on the FTDI by-id port → rosbridge → radiation_node → imu_node
 #   radiation_node runs count_source:=sim in BOTH modes until a GM tube works (F13).
 #   imu_node (real 10-DOF board) runs in live mode only; sim mode uses sensor_sim.
+#   F14 (both modes, after the sensors): uno_bridge (drive), the Gemini 2 colour
+#   camera, web_video_server bound to --video-bind. --no-drive / --no-video skip them.
 #
 # Deploy (from the PC, repo root):
 #   scp robot/tools/stack_up.sh brian@192.168.55.1:~/ranger/
@@ -15,9 +17,14 @@
 #   → ~/ranger/, robot/config/imu_mount.json → ~/ranger/config/, and
 #   robot/ranger_msgs → ~/ranger/ws/src/, built with colcon (see the F13 doc).
 # Run (on the Orin):
-#   ~/ranger/stack_up.sh [sim|live] [--fresh] [--site nairobi|rabat]   default: sim, nairobi
+#   ~/ranger/stack_up.sh [sim|live] [--fresh] [--site nairobi|rabat]
+#                        [--no-drive] [--no-video] [--video-bind <ip>]
+#     default: sim, nairobi, drive + video on, video bound to 192.168.55.1
 #     --fresh  kill any running session and stray stack processes first
 #     --site   where nmea_sim puts the fix (sim only; F11). Deploy nmea_sim.py with this.
+#     --no-drive / --no-video   F14: skip uno_bridge / camera + web_video_server
+#     --video-bind  F14: the one address web_video_server listens on (the link the
+#                   console uses; never 0.0.0.0 — the feed is unauthenticated, ADR)
 #   Normally started for you by scripts/dev_up.sh on the PC, over ssh.
 #   tmux attach -t ranger                 Ctrl-b n / p to switch windows, Ctrl-b d to detach
 #   tmux kill-session -t ranger           stop everything
@@ -32,8 +39,18 @@ MODE="${1:-sim}"
 FRESH=""
 SITE=nairobi
 SITE_GIVEN=0
-USAGE="usage: $0 [sim|live] [--fresh] [--site nairobi|rabat]"
+USAGE="usage: $0 [sim|live] [--fresh] [--site nairobi|rabat] [--no-drive] [--no-video] [--video-bind <ip>]"
 # ─── RANGER V3 END: 11-ingest-region ───
+# ─── RANGER V3 START: 14-stack ───
+DRIVE=1
+VIDEO=1
+VIDEO_BIND=192.168.55.1
+UNO_PORT=/dev/serial/by-id/usb-Arduino__www.arduino.cc__0043_3433031323135171F0F0-if00
+MAX_PWM=120   # until the motor-noise capacitors are in (F14 5a)
+ORBBEC_SETUP="$HOME/ros2_ws/install/setup.bash"
+ORBBEC_LAUNCH="$HOME/ros2_ws/install/orbbec_camera/share/orbbec_camera/launch/gemini2.launch.py"
+COLOR_TOPIC=/camera/color/image_raw
+# ─── RANGER V3 END: 14-stack ───
 SESSION=ranger
 DIR="$HOME/ranger"
 GPS_PORT_LIVE=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AZ6YQ8AI-if00-port0
@@ -61,6 +78,9 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --fresh) FRESH=--fresh ;;
     --site)  SITE="${2:-}"; SITE_GIVEN=1; [ $# -gt 1 ] && shift ;;
+    --no-drive) DRIVE=0 ;;                                          # 14-stack
+    --no-video) VIDEO=0 ;;                                          # 14-stack
+    --video-bind) VIDEO_BIND="${2:-}"; [ $# -gt 1 ] && shift ;;    # 14-stack
     *) fail "$USAGE" ;;
   esac
   shift
@@ -72,6 +92,15 @@ esac
 [ "$MODE" = live ] && [ "$SITE_GIVEN" = 1 ] && fail "--site is sim-only: live takes its position from the receiver"
 # Marker read by scripts/dev_up.sh: a sim at another site must restart, not be kept.
 if [ "$MODE" = sim ]; then MARK="sim:$SITE"; else MARK=live; fi
+# ─── RANGER V3 START: 14-stack ───
+# The marker names the parts too, so dev_up.sh restarts a session that lacks one.
+[ "$DRIVE" = 1 ] && MARK="$MARK+drive"
+[ "$VIDEO" = 1 ] && MARK="$MARK+video"
+if [ "$VIDEO" = 1 ]; then
+  [[ "$VIDEO_BIND" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "--video-bind needs an IPv4 address, got '$VIDEO_BIND'"
+  [ "$VIDEO_BIND" != 0.0.0.0 ] || fail "--video-bind 0.0.0.0 would expose the unauthenticated feed on every interface"
+fi
+# ─── RANGER V3 END: 14-stack ───
 # ─── RANGER V3 END: 11-ingest-region ───
 command -v tmux >/dev/null || fail "tmux not installed: sudo apt install tmux"
 [ -f "$DIR/gps_node.py" ] || fail "$DIR/gps_node.py missing — scp robot/gps_node.py from the PC"
@@ -90,6 +119,24 @@ else
     || fail "$DIR/config/imu_mount.json missing — scp robot/config/imu_mount.json to ~/ranger/config/"
 fi
 # ─── RANGER V3 END: 13-sensor-sim ───
+# ─── RANGER V3 START: 14-stack ───
+if [ "$DRIVE" = 1 ]; then
+  for f in uno_bridge.py uno_protocol.py; do
+    [ -f "$DIR/$f" ] || fail "$DIR/$f missing — scp robot/$f from the PC"
+  done
+  [ -e "$UNO_PORT" ] || fail "no Uno at $UNO_PORT — USB cable in? (or --no-drive)"
+fi
+if [ "$VIDEO" = 1 ]; then
+  [ -f "$ORBBEC_SETUP" ] || fail "$ORBBEC_SETUP missing — OrbbecSDK_ROS2 not built in ~/ros2_ws (F14 install record)"
+  [ -d /opt/ros/humble/share/web_video_server ] || fail "web_video_server not installed: sudo apt install ros-humble-web-video-server"
+  # The upstream launch file shipped with a missing comma (F14 install record);
+  # a re-pull without the patch fails here, not mid-start.
+  python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$ORBBEC_LAUNCH" 2>/dev/null \
+    || fail "$ORBBEC_LAUNCH doesn't parse — reapply the line-47 comma patch (F14 install record)"
+  # grep without -q: under pipefail, -q exits early and lsusb's SIGPIPE fails the pipe
+  lsusb | grep ' 2bc5:' >/dev/null || fail "no Orbbec camera on USB (2bc5) — plugged in? (or --no-video)"
+fi
+# ─── RANGER V3 END: 14-stack ───
 # Preflight everything before touching the running stack.
 if [ "$MODE" = sim ]; then
   [ -f "$DIR/nmea_sim.py" ] || fail "$DIR/nmea_sim.py missing — scp robot/tools/nmea_sim.py from the PC"
@@ -127,6 +174,10 @@ if [ "$FRESH" = --fresh ]; then
   pkill -f '[r]adiation_node.py' 2>/dev/null || true   # 13-sensor-sim
   pkill -f '[s]ensor_sim.py' 2>/dev/null || true       # 13-sensor-sim
   pkill -f '[i]mu_node.py' 2>/dev/null || true         # 13-imu
+  pkill -f '[u]no_bridge.py' 2>/dev/null || true       # 14-stack (it sends M,0,0 on exit)
+  pkill -f '[w]eb_video_server' 2>/dev/null || true    # 14-stack
+  pkill -f '[o]rbbec_camera gemini2' 2>/dev/null || true   # 14-stack: ros2 launch
+  pkill -f '[c]amera_container' 2>/dev/null || true    # 14-stack: the driver process
   pkill -x socat 2>/dev/null || true
   rm -f /tmp/gps_sim /tmp/gps_feed
   sleep 2
@@ -134,6 +185,14 @@ fi
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   fail "session '$SESSION' already running. Attach: tmux attach -t $SESSION · stop: tmux kill-session -t $SESSION"
 fi
+# ─── RANGER V3 START: 14-stack ───
+# A hand-started copy would hold the Uno port or :8080 and the window would die.
+for p in '[u]no_bridge.py' '[w]eb_video_server' '[c]amera_container'; do
+  if pgrep -f "$p" >/dev/null; then
+    fail "${p//[\[\]]/} already running outside the stack — stop it, or rerun with --fresh"
+  fi
+done
+# ─── RANGER V3 END: 14-stack ───
 
 # Each window keeps a shell after its process exits, so a crash stays readable.
 win() {  # win <name> <command>
@@ -170,6 +229,19 @@ fi
 if [ "$MODE" = sim ]; then
   win nmea_sim "python3 $DIR/nmea_sim.py /tmp/gps_feed --site $SITE"   # LAST (F11: --site)
 fi
+
+# ─── RANGER V3 START: 14-stack ───
+# After the GPS chain (its order is F08's), started now so the camera's ~15 s
+# boot overlaps the checks below. uno_bridge can't move the robot by starting:
+# it drives only on fresh cmd_vel, and only with SwA in NET.
+if [ "$DRIVE" = 1 ]; then
+  win drive "cd $DIR && python3 uno_bridge.py --ros-args -p port:=$UNO_PORT -p max_pwm:=$MAX_PWM"
+fi
+if [ "$VIDEO" = 1 ]; then
+  win camera "source $ORBBEC_SETUP; ros2 launch orbbec_camera gemini2.launch.py camera_name:=camera enable_color:=true color_width:=640 color_height:=480 color_fps:=30 color_format:=MJPG enable_depth:=false enable_ir:=false enable_point_cloud:=false enable_colored_point_cloud:=false enable_accel:=false enable_gyro:=false"
+  win video "ros2 run web_video_server web_video_server --ros-args -p address:=$VIDEO_BIND -p port:=8080"
+fi
+# ─── RANGER V3 END: 14-stack ───
 
 # /fix check. Live publishes no-fix messages too, so this proves the pipe, not a fix.
 # The type is given explicitly: without it, `ros2 topic echo` exits at once
@@ -219,4 +291,44 @@ for r in $READINGS; do
 done
 echo "ok: readings publishing · $READINGS"
 # ─── RANGER V3 END: 13-sensor-sim ───
+# ─── RANGER V3 START: 14-stack ───
+part_failed() {  # part_failed <message>
+  tmux set-environment -t "$SESSION" RANGER_MODE failed
+  STARTED=0
+  fail "$1"
+}
+if [ "$DRIVE" = 1 ]; then
+  # The Uno's S lines on /ranger/uno_status prove port + firmware + bridge, not just the node.
+  ok=0
+  for _ in $(seq 3); do
+    if timeout 5 ros2 topic echo --once /ranger/uno_status std_msgs/msg/String >/dev/null 2>&1; then
+      ok=1; break
+    fi
+  done
+  [ "$ok" = 1 ] || part_failed "no /ranger/uno_status within 15 s — session left up: tmux attach -t $SESSION (drive window)"
+  echo "ok: drive · uno_bridge talking to the Uno · max_pwm=$MAX_PWM"
+fi
+if [ "$VIDEO" = 1 ]; then
+  # A completed /snapshot proves real frames end to end: the driver advertises
+  # the topic but publishes nothing until something subscribes. Wait for the
+  # publisher (camera boot is ~15 s) before probing, and keep probes few and
+  # long: every abandoned /snapshot stays queued on web_video_server (F14 5b).
+  ok=0
+  for _ in $(seq 40); do
+    ros2 topic info "$COLOR_TOPIC" 2>/dev/null | grep 'Publisher count: [1-9]' >/dev/null && { ok=1; break; }
+    sleep 1
+  done
+  [ "$ok" = 1 ] || part_failed "no publisher on $COLOR_TOPIC within 40 s — session left up: tmux attach -t $SESSION (camera window)"
+  ok=0
+  for _ in $(seq 2); do
+    if python3 -c "import urllib.request,sys; urllib.request.urlopen(sys.argv[1], timeout=10).read()" \
+        "http://$VIDEO_BIND:8080/snapshot?topic=$COLOR_TOPIC&quality=50" >/dev/null 2>&1; then
+      ok=1; break
+    fi
+  done
+  [ "$ok" = 1 ] || part_failed "no camera frame from http://$VIDEO_BIND:8080 within 20 s — session left up: tmux attach -t $SESSION (camera, video windows)"
+  echo "ok: video · frames at http://$VIDEO_BIND:8080 (bound to $VIDEO_BIND only)"
+fi
+echo "ok: stack up · mode=$MARK"
+# ─── RANGER V3 END: 14-stack ───
 # ─── RANGER V3 END: dev-scripts ───
