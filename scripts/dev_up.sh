@@ -221,15 +221,20 @@ if [ "$VIDEO" = 1 ]; then
     || fail "no camera frame from ${VIDEO_URL} within 10 s — ssh -t $ORIN tmux attach -t ranger (camera, video windows)"
   ok "camera frames at ${VIDEO_URL}"
   # The console reads the feed URL from .env at Vite startup; a stale one shows
-  # "retrying http://localhost:8080" (F14 5b).
+  # "retrying http://localhost:8080" (F14 5b). Under scripts/ranger_up.sh the
+  # URL is passed to Vite for this link instead, and .env is not used.
   ENV_FILE="${REPO}/ranger_frontend/.env"
-  # || true: a missing .env must warn below, not abort under set -e + pipefail
-  env_url=$(sed -n 's/^VITE_VIDEO_SERVER_URL=//p' "$ENV_FILE" 2>/dev/null | tail -1 || true)
-  env_robot=$(sed -n 's/^VITE_VIDEO_ROBOT_ID=//p' "$ENV_FILE" 2>/dev/null | tail -1 || true)
-  if [ "$env_url" != "$VIDEO_URL" ] || [ "$env_robot" != "$ROBOT_ID" ]; then
-    warn "${ENV_FILE}: VITE_VIDEO_SERVER_URL='${env_url}' VITE_VIDEO_ROBOT_ID='${env_robot}', want '${VIDEO_URL}' '${ROBOT_ID}'. Fix it, then (re)start npm run dev."
+  if [ -n "${RANGER_CMDS_FILE:-}" ]; then
+    ok "console video URL for this link: ${VIDEO_URL} (ranger_up passes it to Vite)"
   else
-    ok ".env video URL matches (${VIDEO_URL}, ${ROBOT_ID})"
+    # || true: a missing .env must warn below, not abort under set -e + pipefail
+    env_url=$(sed -n 's/^VITE_VIDEO_SERVER_URL=//p' "$ENV_FILE" 2>/dev/null | tail -1 || true)
+    env_robot=$(sed -n 's/^VITE_VIDEO_ROBOT_ID=//p' "$ENV_FILE" 2>/dev/null | tail -1 || true)
+    if [ "$env_url" != "$VIDEO_URL" ] || [ "$env_robot" != "$ROBOT_ID" ]; then
+      warn "${ENV_FILE}: VITE_VIDEO_SERVER_URL='${env_url}' VITE_VIDEO_ROBOT_ID='${env_robot}', want '${VIDEO_URL}' '${ROBOT_ID}'. Fix it, then (re)start npm run dev."
+    else
+      ok ".env video URL matches (${VIDEO_URL}, ${ROBOT_ID})"
+    fi
   fi
 fi
 # ─── RANGER V3 END: 14-stack ───
@@ -238,7 +243,8 @@ fi
 # Under scripts/ranger_up.sh the PC services are started for you: hand it the
 # built commands (one place for region, live and wifi host) and list nothing.
 if [ -n "${RANGER_CMDS_FILE:-}" ]; then
-  { printf 'INGEST=%q\n' "$INGEST"; printf 'RELAY=%q\n' "$RELAY"; printf 'DRIVE=%q\n' "$DRIVE"; } > "$RANGER_CMDS_FILE"
+  { printf 'INGEST=%q\n' "$INGEST"; printf 'RELAY=%q\n' "$RELAY"; printf 'DRIVE=%q\n' "$DRIVE"
+    printf 'VIDEO_URL=%q\n' "$VIDEO_URL"; printf 'ROBOT_ID=%q\n' "$ROBOT_ID"; } > "$RANGER_CMDS_FILE"
   exit 0
 fi
 # ─── RANGER V3 END: 14-launcher ───

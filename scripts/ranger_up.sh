@@ -46,7 +46,7 @@ command -v curl >/dev/null || fail "curl not installed: sudo apt install curl"
 CMDS=$(mktemp)
 RANGER_CMDS_FILE="$CMDS" "$REPO/scripts/dev_up.sh" "${ARGS[@]}" || fail "dev_up.sh failed (above)"
 # shellcheck disable=SC1090
-source "$CMDS"   # INGEST, RELAY, DRIVE, built by dev_up.sh
+source "$CMDS"   # INGEST, RELAY, DRIVE, VIDEO_URL, ROBOT_ID, built by dev_up.sh
 
 printf '\n── PC services (tmux session %s)\n' "$SESSION"
 tmux kill-session -t "$SESSION" 2>/dev/null && sleep 2 || true
@@ -73,7 +73,9 @@ rm -rf "$STATE" && mkdir -p "$STATE"
 win runserver "$REPO/ranger_backend" "python manage.py runserver"
 win ingest "$REPO/ranger_backend" "$INGEST"
 [ "$DRIVE" = 1 ] && win relay "$REPO/ranger_backend" "$RELAY"
-win vite "$REPO/ranger_frontend" "npm run dev"
+# The video URL follows the link (usb/wifi); variables already in the
+# environment beat .env in Vite, so .env stays the default for a hand-run Vite.
+win vite "$REPO/ranger_frontend" "VITE_VIDEO_SERVER_URL=$VIDEO_URL VITE_VIDEO_ROBOT_ID=$ROBOT_ID npm run dev"
 
 answers() { [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$1")" != 000 ]; }
 for name_url in "Django|http://127.0.0.1:8000/" "Vite|http://localhost:5173/"; do

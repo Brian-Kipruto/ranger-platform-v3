@@ -121,6 +121,10 @@ else
 fi
 # ─── RANGER V3 END: 13-sensor-sim ───
 # ─── RANGER V3 START: 14-stack ───
+# rosbridge has no auth and the feed none by design: never start them unless the
+# firewall limits both ports to the console PC (F14 4d).
+systemctl is-active --quiet ranger-firewall \
+  || fail "ranger-firewall is not active — rosbridge and video would be open to the whole network. Install robot/config/ranger-firewall.{sh,service} (F14 4d)"
 if [ "$DRIVE" = 1 ]; then
   for f in uno_bridge.py uno_protocol.py; do
     [ -f "$DIR/$f" ] || fail "$DIR/$f missing — scp robot/$f from the PC"

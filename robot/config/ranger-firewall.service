@@ -1,0 +1,18 @@
+# ─── RANGER V3 START: 14-firewall ───
+# Orin: installed as /etc/systemd/system/ranger-firewall.service
+# Rules in place before any interface comes up, so there is no open window.
+[Unit]
+Description=RANGER: rosbridge and video reachable only from the console PC (F14 4d)
+DefaultDependencies=no
+Before=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ranger-firewall start
+ExecStop=/usr/local/sbin/ranger-firewall stop
+
+[Install]
+WantedBy=multi-user.target
+# ─── RANGER V3 END: 14-firewall ───
