@@ -93,9 +93,10 @@ esac
 # Marker read by scripts/dev_up.sh: a sim at another site must restart, not be kept.
 if [ "$MODE" = sim ]; then MARK="sim:$SITE"; else MARK=live; fi
 # ─── RANGER V3 START: 14-stack ───
-# The marker names the parts too, so dev_up.sh restarts a session that lacks one.
+# The marker names the parts too, so dev_up.sh restarts a session that lacks one,
+# and the video bind address, so switching usb <-> wifi rebinds the feed (4d).
 [ "$DRIVE" = 1 ] && MARK="$MARK+drive"
-[ "$VIDEO" = 1 ] && MARK="$MARK+video"
+[ "$VIDEO" = 1 ] && MARK="$MARK+video@$VIDEO_BIND"
 if [ "$VIDEO" = 1 ]; then
   [[ "$VIDEO_BIND" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "--video-bind needs an IPv4 address, got '$VIDEO_BIND'"
   [ "$VIDEO_BIND" != 0.0.0.0 ] || fail "--video-bind 0.0.0.0 would expose the unauthenticated feed on every interface"

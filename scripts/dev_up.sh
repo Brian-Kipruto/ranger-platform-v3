@@ -51,10 +51,11 @@ done
 MODE="${POS[0]:-sim}"
 SITE="${POS[1]:-nairobi}"
 LINK="${POS[2]:-usb}"
-# The Orin's address on each link. Set ORIN_WIFI_HOST once, to the Orin's DHCP
-# reservation on the travel router (F12 4d).
+# The Orin's address on each link. Wi-Fi: the Orin's static address on the
+# house network (NetworkManager profile ranger-house, F14 4d); the venue
+# network gets its own in Pass 8.
 ORIN_USB_HOST=192.168.55.1
-ORIN_WIFI_HOST=""
+ORIN_WIFI_HOST=192.168.0.50
 case "$LINK" in
   usb)  DEFAULT_HOST="$ORIN_USB_HOST" ;;
   wifi) DEFAULT_HOST="$ORIN_WIFI_HOST" ;;
@@ -78,7 +79,7 @@ INGEST="python manage.py ros_ingest"
 # Same marker suffixes as stack_up.sh, so a session missing a part is restarted.
 FLAGS=""
 if [ "$DRIVE" = 1 ]; then WANT="$WANT+drive"; else FLAGS="$FLAGS --no-drive"; fi
-if [ "$VIDEO" = 1 ]; then WANT="$WANT+video"; else FLAGS="$FLAGS --no-video"; fi
+if [ "$VIDEO" = 1 ]; then WANT="$WANT+video@$ORIN_HOST"; else FLAGS="$FLAGS --no-video"; fi   # @bind: 4d
 # web_video_server listens only on the address the console reaches the Orin by.
 STACK_ARGS="$STACK_ARGS$FLAGS --video-bind $ORIN_HOST"
 VIDEO_URL="http://${ORIN_HOST}:8080"
