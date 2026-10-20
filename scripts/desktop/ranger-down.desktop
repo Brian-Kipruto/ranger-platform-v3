@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=RANGER Down
+Comment=Stop the RANGER bench (PC services and the Orin stack)
+Exec=gnome-terminal --title=RANGER-down -- @REPO@/scripts/ranger_down.sh --pause
+Icon=media-playback-stop
+Terminal=false
+Categories=Development;

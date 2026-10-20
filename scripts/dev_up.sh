@@ -233,6 +233,14 @@ if [ "$VIDEO" = 1 ]; then
 fi
 # ─── RANGER V3 END: 14-stack ───
 
+# ─── RANGER V3 START: 14-launcher ───
+# Under scripts/ranger_up.sh the PC services are started for you: hand it the
+# built commands (one place for region, live and wifi host) and list nothing.
+if [ -n "${RANGER_CMDS_FILE:-}" ]; then
+  { printf 'INGEST=%q\n' "$INGEST"; printf 'RELAY=%q\n' "$RELAY"; printf 'DRIVE=%q\n' "$DRIVE"; } > "$RANGER_CMDS_FILE"
+  exit 0
+fi
+# ─── RANGER V3 END: 14-launcher ───
 cat <<NEXT
 
 ── Ready. Terminals, venv active (source ${REPO}/.venv/bin/activate):
