@@ -10,7 +10,7 @@
 #      Mission Control
 #
 # Usage: scripts/ranger_up.sh [dev_up.sh arguments] [--pause]
-#        default: sim nairobi usb, drive + video
+#        default: sim nairobi, link auto (tether if it answers, else Wi-Fi), drive + video
 #   --pause  wait for Enter before exiting (the dock icon uses it so the
 #            terminal stays readable)
 # Logs:  tmux attach -t ranger-pc     Ctrl-b n / p switch windows, Ctrl-b d detach

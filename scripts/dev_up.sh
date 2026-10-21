@@ -17,13 +17,15 @@
 #      web_video_server (video); the camera feed is checked from the PC and
 #      ranger_frontend/.env is checked against this link's video URL.
 #
-# Usage: scripts/dev_up.sh [sim|live] [nairobi|rabat] [usb|wifi] [--set-clock]
+# Usage: scripts/dev_up.sh [sim|live] [nairobi|rabat] [usb|wifi|auto] [--set-clock]
 #                         [--no-drive] [--no-video]
-#        default: sim nairobi usb  (from anywhere)
+#        default: sim nairobi auto  (from anywhere)
 #   site: in sim, where nmea_sim puts the fix; in both modes, the --region the
 #   printed ros_ingest command uses (nairobi -> kenya, the default). F11.
 #   link: usb = tether at 192.168.55.1; wifi = the Orin's reservation on our
 #   travel router (ORIN_WIFI_HOST below). ORIN_HOST in the environment wins. F12.
+#   auto (the default): usb if the Orin answers on the tether, else wifi if it
+#   answers there; says which. The dock icon relies on it (F14 follow-up).
 #   --set-clock: set the Orin's clock from the PC with sudo (TS-029) instead of
 #   requiring NTP sync. Fallback only; it hides a broken time server.
 #   --no-drive / --no-video: start the stack without uno_bridge / without the
@@ -32,7 +34,7 @@
 set -euo pipefail
 
 # ─── RANGER V3 START: 12-field-time ───
-USAGE="usage: $0 [sim|live] [nairobi|rabat] [usb|wifi] [--set-clock] [--no-drive] [--no-video]"
+USAGE="usage: $0 [sim|live] [nairobi|rabat] [usb|wifi|auto] [--set-clock] [--no-drive] [--no-video]"
 usage() { echo "$USAGE" >&2; exit 2; }
 SET_CLOCK=0
 DRIVE=1   # 14-stack
@@ -50,12 +52,30 @@ done
 [ "${#POS[@]}" -le 3 ] || usage
 MODE="${POS[0]:-sim}"
 SITE="${POS[1]:-nairobi}"
-LINK="${POS[2]:-usb}"
+LINK="${POS[2]:-auto}"
 # The Orin's address on each link. Wi-Fi: the Orin's static address on the
 # house network (NetworkManager profile ranger-house, F14 4d); the venue
 # network gets its own in Pass 8.
 ORIN_USB_HOST=192.168.55.1
 ORIN_WIFI_HOST=192.168.0.50
+# ─── RANGER V3 START: 14-link-auto ───
+# auto: the tether first (it's there only when plugged in and it's the faster
+# link), then Wi-Fi. An ORIN_HOST in the environment decides it instead.
+if [ "$LINK" = auto ]; then
+  if [ -n "${ORIN_HOST:-}" ]; then
+    if [ "$ORIN_HOST" = "$ORIN_USB_HOST" ]; then LINK=usb; else LINK=wifi; fi
+    LINK_WHY="ORIN_HOST=$ORIN_HOST"
+  elif ping -c 1 -W 1 "$ORIN_USB_HOST" >/dev/null 2>&1; then
+    LINK=usb;  LINK_WHY="the tether answers"
+  elif ping -c 1 -W 2 "$ORIN_WIFI_HOST" >/dev/null 2>&1; then
+    LINK=wifi; LINK_WHY="no tether; Wi-Fi answers"
+  else
+    echo "   FAIL: the Orin doesn't answer on the tether ($ORIN_USB_HOST) or Wi-Fi ($ORIN_WIFI_HOST) — powered on? booted (~2 min)? tether plugged in or Wi-Fi joined?" >&2
+    exit 1
+  fi
+  printf '   link: %s (auto: %s)\n' "$LINK" "$LINK_WHY"
+fi
+# ─── RANGER V3 END: 14-link-auto ───
 case "$LINK" in
   usb)  DEFAULT_HOST="$ORIN_USB_HOST" ;;
   wifi) DEFAULT_HOST="$ORIN_WIFI_HOST" ;;

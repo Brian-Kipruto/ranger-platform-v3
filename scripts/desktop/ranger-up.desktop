@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=RANGER Up
-Comment=Start the RANGER bench (sim, Nairobi, USB tether) and open Mission Control
+Comment=Start the RANGER bench (sim, Nairobi; tether or Wi-Fi, whichever answers) and open Mission Control
 Exec=gnome-terminal --title=RANGER-up -- @REPO@/scripts/ranger_up.sh --pause
 Icon=media-playback-start
 Terminal=false
