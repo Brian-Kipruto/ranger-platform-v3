@@ -193,14 +193,13 @@ resync first.
 
 ## Open items
 
-- **🧊 4d — untethered on the travel router. Required for the finale:** the robot
-  can't drive on a tether, and Pass 5 teleop/video and Pass 8's dry run assume it.
-  Needs: the router; DHCP reservations for the PC and the Orin; the Orin
-  auto-joining at boot; then `ORIN_WIFI_HOST` in `dev_up.sh`, the router subnet in
-  `chrony-ranger.conf` `allow`, the PC's router address in `timesyncd-ranger.conf`
-  `NTP=`; then the whole stack over Wi-Fi (measure `lag=`), and the rehearsal: USB
-  unplugged, Orin on the rover battery, PC offline, reboot, `dev_up.sh live <site>
-  wifi`, rows land with `clock_skew: 0`. Spec: vault *Pass 4*, checkpoint 4d.
+- **✅ 4d — untethered on Wi-Fi: done in F14** (2026-10-20, house network). The Orin
+  joins at boot with a static address, time comes from the PC over Wi-Fi, a
+  console-PC-only firewall guards rosbridge and video, and the robot drives
+  untethered with the tether's stop margins. See
+  [F14](./14-drive-and-video.md) and ADR-0025/0026. **Still open, now Pass 8:** the
+  venue router or hotspot and its addresses, the Orin on the rover battery, PC
+  offline, `dev_up.sh live <site> wifi` with `clock_skew: 0`.
 - **🧊 4c — GPS time witness.** `gps_node` parses RMC (time + date), publishes
   `sensor_msgs/msg/TimeReference` on `/time_reference`; `dev_up.sh live` prints
   `orin − gps`. The only check on the PC's own clock drifting offline at the
