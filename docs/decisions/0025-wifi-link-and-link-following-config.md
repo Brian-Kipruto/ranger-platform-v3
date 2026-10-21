@@ -30,11 +30,17 @@ Proven untethered: `synced to 192.168.0.102`, orin − pc within 0.01 s.
 
 ## Decision 3 — One link argument drives every address
 
-`dev_up.sh … [usb|wifi]` (and `ranger_up.sh`, which passes it on) sets the Orin host,
+`dev_up.sh … [usb|wifi|auto]` (and `ranger_up.sh`, which passes it on) sets the Orin host,
 and from it: ingest and relay `--host`, `web_video_server --video-bind`, the console's
 video URL (passed to Vite as environment variables, which win over `.env`), and the
 stack's mode marker `…+video@<bind>`, so switching link rebinds the feed instead of
 "already running — leaving it".
+
+`auto` is the default (added after close, so the dock icon works untethered): the
+tether if the Orin answers on `192.168.55.1`, else Wi-Fi if it answers on
+`192.168.0.50`, else a clear failure; the choice is printed (`link: usb (auto: the
+tether answers)`). The tether wins when both answer: it is present only when
+plugged in, and faster. An explicit `usb`/`wifi` or an `ORIN_HOST` overrides it.
 
 ## Consequences
 

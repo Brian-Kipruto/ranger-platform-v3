@@ -35,7 +35,8 @@ recorded in this document. F12's open item points here.
   everything cleanly. Dock icons run both.
 - **Untethered on Wi-Fi (4d; ADR-0025).** The Orin joins the house Wi-Fi at boot
   with a static address; the PC has a reservation; time comes from the PC over
-  Wi-Fi; one `usb|wifi` argument moves every address with it.
+  Wi-Fi; one `usb|wifi|auto` argument moves every address with it (`auto`, the
+  default: the tether if it answers, else Wi-Fi).
 - **A console-PC-only firewall (ADR-0026).** rosbridge and the feed are
   unauthenticated, so the Orin accepts `:9090` and `:8080` only from the PC.
   `stack_up.sh` refuses to start unless the rules themselves are in place.
@@ -275,8 +276,9 @@ scp robot/uno_protocol.py robot/uno_bridge.py robot/tools/stack_up.sh brian@192.
 ## Running it
 
 ```bash
-# one command (or the RANGER Up icon, which runs usb)
-scripts/ranger_up.sh sim nairobi wifi      # [sim|live] [nairobi|rabat] [usb|wifi]
+# one command (or the RANGER Up icon: auto link — the tether if it answers, else Wi-Fi)
+scripts/ranger_up.sh                       # [sim|live] [nairobi|rabat] [usb|wifi|auto]
+scripts/ranger_up.sh sim nairobi wifi      # force a link
 scripts/ranger_down.sh                     # or the RANGER Down icon
 # logs
 tmux attach -t ranger-pc                                  # PC: runserver, ingest, relay, vite
@@ -363,7 +365,8 @@ writer). The stack scripts use `grep … >/dev/null`.
 - **Authenticated or proxied video** if anyone but the console PC must see it
   (ADR-0024).
 - **A read-only stack-status panel** in the console (ADR-0027).
-- **A `wifi` (and later `live`) dock launcher**; the icons start `usb`.
+- **A `live` dock launcher** when live runs become routine; the icon starts `sim`
+  (the link is automatic since the F14 follow-up).
 - **Magnetometer calibration** (F13) is still open; heading stays null.
 - **Pre-existing:** 9 eslint problems (`client.ts`, `SatellitePage`,
   `VisualizationsPage`, `DataExplorerPage`); auth bootstrap logs 401s on an expired
