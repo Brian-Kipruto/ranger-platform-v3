@@ -67,3 +67,33 @@ twice in dev; reusing the element left it aborted.
 
 - One viewer costs about 0.7 of an Orin core (driver + server) and +0.38 W.
 - The feed is unauthenticated on the wire; the firewall is the control.
+
+## Addendum (2026-10-24) — low-bandwidth profiles, auto with hysteresis
+
+Outdoors at the house the Orin's Wi-Fi **send** rate fell to 6.5–19.5 Mbit/s (MCS 0–2,
+single stream) at −57 to −72 dBm while drive kept working; HIGH (~6 Mbit/s) didn't fit
+and the feed sat on STALE (TS-044). Decision:
+
+- **Two profiles**, both plain `web_video_server` request parameters (it scales and
+  encodes; nothing changes on the Orin): **HIGH** 640×480 q70 (25.4 kB/frame,
+  ~6 Mbit/s) and **LOW** 320×240 q40 (4.8 kB/frame, ~1 Mbit/s).
+- **The probe shrinks** to 160×120 q30 (1.9 kB) so it barely loads the link.
+- **AUTO** (default): down to LOW after 2 consecutive probes slower than 600 ms, or on
+  STALE; up to HIGH only after probes faster than 200 ms continuously for 15 s. A pure
+  function (`nextAuto`) holds the rules.
+- **Manual AUTO / HIGH / LOW** toggle on the panel; the status reads `LIVE · LOW`.
+- A profile change is a new stream: the `<img>` remounts and the old connection closes
+  (Decision 4 still holds; one stream per tab verified after switches).
+- **The watchdog is unchanged.** If even LOW gets no frame for 2.5 s, it is STALE.
+
+**Measured (2026-10-24, same walk as before):** AUTO went LOW on the first STALE and
+back to HIGH ~15 s after the link recovered indoors, with no flapping. Outside, at
+−63 to −75 dBm and mostly 6.5 Mbit/s, the feed was LIVE ~85% of a minute (before:
+~0%), with 6 stalls of 0.03–6.1 s where the link delivered nothing. When the link
+collapses the probe doesn't come back slow, it doesn't come back — STALE, not RTT, is
+what triggered the step down. Sandbox (fake timers, real hook): saturated → LOW in
+2.9 s; marginal 300 ms → stays LOW; recovery → HIGH only after the 15 s hold; three
+threshold mutants each change the timeline.
+
+**Not done, on purpose:** loosening STALE to hide link dropouts, and a still lower
+tier. The remaining stalls are RF (TS-044): antennas, then router placement.

@@ -344,6 +344,18 @@ writer). The stack scripts use `grep … >/dev/null`.
 
 ---
 
+## After close (follow-ups)
+
+- **Link auto** (2026-10-21): `dev_up.sh`/`ranger_up.sh` default to `auto` — the
+  tether if the Orin answers there, else Wi-Fi — so the dock icon works untethered
+  (ADR-0025). Proven with the icon on both links.
+- **Low-bandwidth video** (2026-10-24): HIGH/LOW profiles, AUTO by probe round trip
+  and STALE with hysteresis, a manual toggle (ADR-0024 addendum). Outdoors the feed
+  went from ~0% to ~85% LIVE at the link's floor; the rest is radio (TS-044).
+- **Uno silent on a USB port** (2026-10-24, TS-045): reseated on another port.
+
+---
+
 ## Open items
 
 - **➡️ Pass 8 — current draw.** A meter on the battery lead; idle, sensing,
@@ -364,6 +376,10 @@ writer). The stack scripts use `grep … >/dev/null`.
   or retire it now that the Orin has internet over Wi-Fi.
 - **Authenticated or proxied video** if anyone but the console PC must see it
   (ADR-0024).
+- **Outdoor video range (TS-044).** Check the Orin's Wi-Fi antennas (attached, out of
+  the metal) and repeat the walk; at the venue, router placement and channel. A lower
+  video tier only if radio fixes aren't enough.
+- **Strain-relieve the Uno's USB cable** on the robot (TS-045).
 - **A read-only stack-status panel** in the console (ADR-0027).
 - **A `live` dock launcher** when live runs become routine; the icon starts `sim`
   (the link is automatic since the F14 follow-up).
