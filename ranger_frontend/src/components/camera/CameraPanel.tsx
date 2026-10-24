@@ -15,7 +15,14 @@ import { useEffect, useRef, useState } from "react"
 import { Panel } from "@/components/console/Panel"
 import { MonoLabel } from "@/components/console/MonoLabel"
 // ─── RANGER V3 START: 14-video ───
-import { VIDEO_CONFIG, useFeedLiveness, type FeedState } from "@/lib/video"
+import {
+  VIDEO_CONFIG,
+  useAutoProfile,
+  useFeedLiveness,
+  type FeedState,
+  type VideoMode,
+  type VideoProfile,
+} from "@/lib/video"
 
 const STATUS: Record<FeedState, { text: string; tone: "ok" | "warn" | "alert" }> = {
   connecting: { text: "● CONNECTING", tone: "warn" },
@@ -55,7 +62,7 @@ export function CameraPanel({ robotLabel }: CameraPanelProps) {
     <LiveCamera
       robotLabel={robotLabel ?? VIDEO_CONFIG.robotId}
       baseUrl={VIDEO_CONFIG.baseUrl}
-      streamUrl={VIDEO_CONFIG.streamUrl}
+      streamUrls={VIDEO_CONFIG.streamUrls}
       snapshotUrl={VIDEO_CONFIG.snapshotUrl}
     />
   )
@@ -103,21 +110,60 @@ function MjpegStream({ src, alt, onError }: { src: string; alt: string; onError:
 interface LiveCameraProps {
   robotLabel: string
   baseUrl: string
-  streamUrl: string
+  streamUrls: Record<VideoProfile, string>
   snapshotUrl: string
 }
 
-function LiveCamera({ robotLabel, baseUrl, streamUrl, snapshotUrl }: LiveCameraProps) {
-  const { state, streamKey, lastOkAt, reconnect } = useFeedLiveness(snapshotUrl)
-  // the <img> that errored; a new streamKey means a fresh attempt
-  const [erroredKey, setErroredKey] = useState<number | null>(null)
-  const imgFailed = erroredKey === streamKey
+// ─── RANGER V3 START: 14-video-lowbw ───
+const MODES: VideoMode[] = ["auto", "high", "low"]
+
+function ModeToggle({ mode, onChange }: { mode: VideoMode; onChange: (m: VideoMode) => void }) {
+  return (
+    <div className="flex rounded border border-border overflow-hidden" role="group" aria-label="video quality">
+      {MODES.map((m) => (
+        <button
+          key={m}
+          onClick={() => onChange(m)}
+          aria-pressed={mode === m}
+          className={
+            "font-mono text-[9px] px-2 py-[2px] tracking-[0.1em] " +
+            (mode === m ? "bg-info/20 text-info" : "text-fg-faint hover:text-fg-soft")
+          }
+        >
+          {m.toUpperCase()}
+        </button>
+      ))}
+    </div>
+  )
+}
+// ─── RANGER V3 END: 14-video-lowbw ───
+
+function LiveCamera({ robotLabel, baseUrl, streamUrls, snapshotUrl }: LiveCameraProps) {
+  // ─── RANGER V3 START: 14-video-lowbw ───
+  const [mode, setMode] = useState<VideoMode>("auto")
+  const auto = useAutoProfile()
+  const { state, streamKey, lastOkAt, reconnect } = useFeedLiveness(snapshotUrl, auto.onProbe, auto.onStale)
+  const profile: VideoProfile = mode === "auto" ? auto.profile : mode
+  // a profile change is a new stream: the key remounts MjpegStream, which closes the old one
+  const imgKey = `${streamKey}-${profile}`
+  // ─── RANGER V3 END: 14-video-lowbw ───
+  // the <img> that errored; a new key means a fresh attempt
+  const [erroredKey, setErroredKey] = useState<string | null>(null)
+  const imgFailed = erroredKey === imgKey
   const status = STATUS[state]
 
   return (
     <Panel
       title={`${robotLabel} · COLOR`}
-      right={<MonoLabel size="xs" tone={status.tone}>{status.text}</MonoLabel>}
+      right={
+        <div className="flex items-center gap-3">
+          <ModeToggle mode={mode} onChange={setMode} />
+          <MonoLabel size="xs" tone={status.tone}>
+            {status.text}
+            {state === "live" ? ` · ${profile.toUpperCase()}` : ""}
+          </MonoLabel>
+        </div>
+      }
     >
       <div
         className={
@@ -127,11 +173,11 @@ function LiveCamera({ robotLabel, baseUrl, streamUrl, snapshotUrl }: LiveCameraP
       >
         {!imgFailed ? (
           <MjpegStream
-            key={streamKey}
+            key={imgKey}
             // _r forces a new HTTP connection on reconnect; web_video_server ignores it
-            src={`${streamUrl}&_r=${streamKey}`}
+            src={`${streamUrls[profile]}&_r=${streamKey}`}
             alt={`${robotLabel} live camera feed`}
-            onError={() => setErroredKey(streamKey)}
+            onError={() => setErroredKey(imgKey)}
           />
         ) : null}
 

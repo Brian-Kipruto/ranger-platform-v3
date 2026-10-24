@@ -29,7 +29,7 @@
  * Worst case ~2.5 s from the last frame to STALE; LIVE as soon as a fresh frame
  * exists.
  */
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 export const COLOR_TOPIC = "/camera/color/image_raw"
 
@@ -40,8 +40,75 @@ export const COLOR_TOPIC = "/camera/color/image_raw"
  * screen at 2.3x less bandwidth; quality barely moves CPU. The probe only needs
  * to complete, so it asks for the cheapest frame.
  */
-export const STREAM_QUALITY = 70
-export const PROBE_QUALITY = 50
+// ─── RANGER V3 START: 14-video-lowbw ───
+/**
+ * Two stream profiles (web_video_server scales and encodes per request).
+ * HIGH ~25 kB/frame, ~6 Mbit/s at 30 fps; LOW ~3-4 kB/frame, ~1 Mbit/s.
+ * Outdoors the Orin's Wi-Fi send rate fell to 6.5-19.5 Mbit/s (MCS 1-2) while
+ * drive kept working; HIGH didn't fit and the feed went STALE.
+ */
+export type VideoProfile = "high" | "low"
+export type VideoMode = "auto" | VideoProfile
+export const PROFILES: Record<VideoProfile, { width: number; height: number; quality: number }> = {
+  high: { width: 640, height: 480, quality: 70 },
+  low: { width: 320, height: 240, quality: 40 },
+}
+/** The probe only has to complete; a tiny frame keeps it from loading the link. */
+export const PROBE_SIZE = { width: 160, height: 120, quality: 30 }
+
+/**
+ * Auto mode. The probe shares the Orin's uplink with the stream, so when the
+ * stream saturates the link the probe's round trip balloons first.
+ *  - down to LOW: DOWN_AFTER_SLOW probes in a row slower than DOWN_RTT_MS, or STALE
+ *  - up to HIGH: probes faster than UP_RTT_MS continuously for UP_HOLD_MS
+ * The gap between the thresholds and the hold stop flapping at the range edge.
+ */
+export const DOWN_RTT_MS = 600
+export const DOWN_AFTER_SLOW = 2
+export const UP_RTT_MS = 200
+export const UP_HOLD_MS = 15000
+
+export interface AutoState {
+  profile: VideoProfile
+  slow: number // consecutive probes slower than DOWN_RTT_MS
+  goodSince: number | null // ms; start of the current run of fast probes
+}
+export const AUTO_START: AutoState = { profile: "high", slow: 0, goodSince: null }
+export type AutoEvent = { kind: "probe"; rttMs: number; now: number } | { kind: "stale"; now: number }
+
+export function nextAuto(s: AutoState, e: AutoEvent): AutoState {
+  if (e.kind === "stale") return { profile: "low", slow: 0, goodSince: null }
+  if (e.rttMs > DOWN_RTT_MS) {
+    const slow = s.slow + 1
+    return { profile: slow >= DOWN_AFTER_SLOW ? "low" : s.profile, slow, goodSince: null }
+  }
+  const goodSince = e.rttMs < UP_RTT_MS ? (s.goodSince ?? e.now) : null
+  if (s.profile === "low" && goodSince !== null && e.now - goodSince >= UP_HOLD_MS) {
+    return { profile: "high", slow: 0, goodSince: null }
+  }
+  return { profile: s.profile, slow: 0, goodSince }
+}
+
+/** Auto profile state for the camera panel; feed it the watchdog's probe events. */
+export function useAutoProfile() {
+  const ref = useRef<AutoState>(AUTO_START)
+  const [profile, setProfile] = useState<VideoProfile>(AUTO_START.profile)
+  const apply = useCallback((e: AutoEvent, why: string) => {
+    const before = ref.current.profile
+    ref.current = nextAuto(ref.current, e)
+    if (ref.current.profile !== before) {
+      console.info(`[video] PROFILE ${ref.current.profile} ${new Date().toISOString()} (${why})`)
+      setProfile(ref.current.profile)
+    }
+  }, [])
+  const onProbe = useCallback(
+    (rttMs: number) => apply({ kind: "probe", rttMs, now: performance.now() }, `probe ${Math.round(rttMs)} ms`),
+    [apply],
+  )
+  const onStale = useCallback(() => apply({ kind: "stale", now: performance.now() }, "stale"), [apply])
+  return { profile, onProbe, onStale }
+}
+// ─── RANGER V3 END: 14-video-lowbw ───
 
 export const PROBE_INTERVAL_MS = 1000 // at most one probe start per second
 export const STALE_AFTER_MS = 2500 // no completed probe for this long = STALE
@@ -55,7 +122,7 @@ export type VideoConfig =
       ok: true
       baseUrl: string
       robotId: string
-      streamUrl: string
+      streamUrls: Record<VideoProfile, string>
       snapshotUrl: string
     }
   | { ok: false; problems: string[] }
@@ -92,9 +159,16 @@ export function parseVideoConfig(rawUrl: string | undefined, rawRobotId: string 
     ok: true,
     baseUrl,
     robotId,
-    streamUrl: `${baseUrl}/stream?topic=${topic}&type=mjpeg&quality=${STREAM_QUALITY}`,
-    snapshotUrl: `${baseUrl}/snapshot?topic=${topic}&quality=${PROBE_QUALITY}`,
+    streamUrls: {
+      high: streamUrl(baseUrl, topic, PROFILES.high),
+      low: streamUrl(baseUrl, topic, PROFILES.low),
+    },
+    snapshotUrl: `${baseUrl}/snapshot?topic=${topic}&width=${PROBE_SIZE.width}&height=${PROBE_SIZE.height}&quality=${PROBE_SIZE.quality}`,
   }
+}
+
+function streamUrl(base: string, topic: string, p: { width: number; height: number; quality: number }): string {
+  return `${base}/stream?topic=${topic}&type=mjpeg&width=${p.width}&height=${p.height}&quality=${p.quality}`
 }
 
 export const VIDEO_CONFIG: VideoConfig = parseVideoConfig(
@@ -113,8 +187,19 @@ export interface FeedLiveness {
   reconnect: () => void
 }
 
-export function useFeedLiveness(snapshotUrl: string): FeedLiveness {
+export function useFeedLiveness(
+  snapshotUrl: string,
+  onProbe?: (rttMs: number) => void,
+  onStale?: () => void,
+): FeedLiveness {
   const [state, setState] = useState<FeedState>("connecting")
+  // latest callbacks without restarting the probe loop
+  const onProbeRef = useRef(onProbe)
+  const onStaleRef = useRef(onStale)
+  useEffect(() => {
+    onProbeRef.current = onProbe
+    onStaleRef.current = onStale
+  }, [onProbe, onStale])
   const [streamKey, setStreamKey] = useState(0)
   const [lastOkAt, setLastOkAt] = useState<number | null>(null)
 
@@ -133,8 +218,9 @@ export function useFeedLiveness(snapshotUrl: string): FeedLiveness {
       if (cancelled || inflight) return
       const ctrl = new AbortController()
       inflight = ctrl
-      inflightSince = performance.now()
-      lastStart = inflightSince
+      const started = performance.now()
+      inflightSince = started
+      lastStart = started
       // no-cors: opaque response, but it only resolves if the server answered,
       // and /snapshot only answers once a fresh frame exists.
       fetch(snapshotUrl, { mode: "no-cors", cache: "no-store", signal: ctrl.signal })
@@ -142,6 +228,7 @@ export function useFeedLiveness(snapshotUrl: string): FeedLiveness {
           if (cancelled || inflight !== ctrl) return
           inflight = null
           lastOk = performance.now()
+          onProbeRef.current?.(lastOk - started)
           setLastOkAt(Date.now())
           if (stale) {
             stale = false
@@ -175,6 +262,7 @@ export function useFeedLiveness(snapshotUrl: string): FeedLiveness {
         stale = true
         console.info(`[video] STALE ${new Date().toISOString()} (no frame for ${Math.round(now - lastOk)} ms)`)
         setState("stale")
+        onStaleRef.current?.()
       }
     }, CHECK_MS)
 
