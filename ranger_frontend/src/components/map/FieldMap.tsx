@@ -66,6 +66,20 @@ export interface FieldMapReadout {
   speedMs?: number
 }
 
+// ─── RANGER V3 START: 15-mission-plan ───
+/**
+ * A mission waypoint drawn on the map (F15). `label` is what the marker shows
+ * (the 1-based order). `state` is display state, not the DB enum: "active"
+ * is the first PENDING waypoint of a running mission, decided by the caller.
+ */
+export interface FieldMapWaypoint {
+  lng: number
+  lat: number
+  label: string
+  state: "pending" | "active" | "completed" | "skipped"
+}
+// ─── RANGER V3 END: 15-mission-plan ───
+
 /** Imperative handle so callers (Data Explorer) can flyTo a clicked row. */
 export interface FieldMapHandle {
   flyTo: (lng: number, lat: number, zoom?: number) => void
@@ -134,12 +148,76 @@ export interface FieldMapProps {
   /** Map viewport height (the container needs an explicit height). */
   height?: string | number
   className?: string
+  // ─── RANGER V3 START: 15-mission-plan ───
+  /** Ordered mission waypoints: numbered markers joined by a route line. */
+  waypoints?: FieldMapWaypoint[]
+  /** Map click (not a marker click) -> lng/lat. Set = crosshair cursor. */
+  onMapClick?: (lng: number, lat: number) => void
+  /** Fit the viewport to `waypoints` whenever this key changes (e.g. a
+   *  mission id on load). Keyed so adding a point never yanks the view. */
+  fitToWaypointsKey?: string | number | null
+  // ─── RANGER V3 END: 15-mission-plan ───
 }
 
 const TRACK_SOURCE = "track"
 const TRACK_LAYER = "track-points"
 const RASTER_SOURCE = "eo-raster"
 const RASTER_LAYER = "eo-raster-layer"
+// ─── RANGER V3 START: 15-mission-plan ───
+const ROUTE_SOURCE = "mission-route"
+const ROUTE_LAYER = "mission-route-line"
+
+/** Hex, not CSS vars (marker DOM + paint props can't read them). */
+const WAYPOINT_COLOR: Record<FieldMapWaypoint["state"], string> = {
+  pending: "#e9ebef",
+  active: "#36c5f0",
+  completed: "#4be08a",
+  skipped: "#7a828f",
+}
+
+function routeData(wps: FieldMapWaypoint[]): maplibregl.GeoJSONSourceSpecification["data"] {
+  // < 2 points is no line: an empty collection, never a degenerate LineString
+  // (every FieldMap — DE, dashboard, satellite — installs this source).
+  if (wps.length < 2) return { type: "FeatureCollection", features: [] }
+  return {
+    type: "Feature",
+    properties: {},
+    geometry: { type: "LineString", coordinates: wps.map((w) => [w.lng, w.lat]) },
+  }
+}
+
+/**
+ * Keep the route above any raster and below the track points — moving ONLY
+ * when the order is wrong. installLayers runs on every `styledata`, and
+ * moveLayer itself emits `styledata`: an unconditional move re-enters
+ * installLayers forever, `load` never fires, and every FieldMap freezes.
+ */
+function ensureRouteOrder(m: maplibregl.Map) {
+  if (!m.getLayer(ROUTE_LAYER) || !m.getLayer(TRACK_LAYER)) return
+  const order = m.getLayersOrder()
+  const route = order.indexOf(ROUTE_LAYER)
+  const track = order.indexOf(TRACK_LAYER)
+  const raster = order.indexOf(RASTER_LAYER)
+  if (route > track || (raster !== -1 && route < raster)) m.moveLayer(ROUTE_LAYER, TRACK_LAYER)
+}
+
+/** Numbered disc. Active gets a ring; completed is filled green. Clicks are
+ *  swallowed so clicking a marker never adds a waypoint under it. */
+function buildWaypointEl(wp: FieldMapWaypoint): HTMLDivElement {
+  const color = WAYPOINT_COLOR[wp.state]
+  const filled = wp.state === "completed" || wp.state === "active"
+  const el = document.createElement("div")
+  el.style.cssText =
+    `width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;` +
+    `font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;cursor:default;` +
+    `background:${filled ? color : "rgba(8,9,11,0.85)"};color:${filled ? "#0a0d12" : color};` +
+    `border:2px solid ${color};` +
+    (wp.state === "active" ? `box-shadow:0 0 0 4px ${color}55, 0 0 14px ${color};` : "")
+  el.textContent = wp.label
+  el.addEventListener("click", (e) => e.stopPropagation())
+  return el
+}
+// ─── RANGER V3 END: 15-mission-plan ───
 
 /** ImageSource wants four corners CLOCKWISE FROM TOP-LEFT, not a bbox.
  *  Getting this order wrong mirrors or rotates the image over the map,
@@ -295,6 +373,11 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
     fitToRaster = false,
     height = "68vh",
     className,
+    // ─── RANGER V3 START: 15-mission-plan ───
+    waypoints,
+    onMapClick,
+    fitToWaypointsKey = null,
+    // ─── RANGER V3 END: 15-mission-plan ───
   },
   ref
 ) {
@@ -325,6 +408,17 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
   const pendingRaster = useRef<FieldMapRaster | null>(raster)
   /** Last raster id the viewport was fitted to, so a repeat fit is skipped. */
   const fittedRasterId = useRef<string | null>(null)
+  // ─── RANGER V3 START: 15-mission-plan ───
+  // Same pattern as pendingTrack: styledata re-installs the route from here.
+  const pendingRoute = useRef<FieldMapWaypoint[]>(waypoints ?? [])
+  const waypointMarkers = useRef<maplibregl.Marker[]>([])
+  const waypointSigs = useRef<string[]>([])
+  // The init effect is mount-once; the click handler reads the latest prop.
+  const onMapClickRef = useRef(onMapClick)
+  useEffect(() => {
+    onMapClickRef.current = onMapClick
+  }, [onMapClick])
+  // ─── RANGER V3 END: 15-mission-plan ───
 
   /**
    * installLayers — the SINGLE place every source/layer is (re)added. Called on
@@ -383,6 +477,24 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
         })
       }
 
+      // ─── RANGER V3 START: 15-mission-plan ───
+      // Route under the track points, over any raster.
+      if (!m.getSource(ROUTE_SOURCE)) {
+        m.addSource(ROUTE_SOURCE, { type: "geojson", data: routeData(pendingRoute.current) })
+      }
+      if (!m.getLayer(ROUTE_LAYER)) {
+        m.addLayer(
+          {
+            id: ROUTE_LAYER,
+            type: "line",
+            source: ROUTE_SOURCE,
+            paint: { "line-color": "#e9ebef", "line-width": 2, "line-opacity": 0.7, "line-dasharray": [2, 2] },
+          },
+          m.getLayer(TRACK_LAYER) ? TRACK_LAYER : undefined
+        )
+      }
+      // ─── RANGER V3 END: 15-mission-plan ───
+
       // Sensor points ALWAYS draw over imagery. If the raster were added
       // after the track (a styledata re-install with a newly-set raster, say)
       // it would cover every ground measurement on the screen whose whole
@@ -390,6 +502,8 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
       if (m.getLayer(RASTER_LAYER) && m.getLayer(TRACK_LAYER)) {
         m.moveLayer(RASTER_LAYER, TRACK_LAYER)
       }
+      // 15-mission-plan: the raster move above can land it on top of the route.
+      ensureRouteOrder(m)
 
       // The guards above prevent re-ADDING a layer that already exists. They
       // do NOT update one whose paint props changed since it was added —
@@ -440,6 +554,10 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
       installLayersRef.current(m)
       setMapReady(true)
     })
+
+    // ─── RANGER V3 START: 15-mission-plan ───
+    m.on("click", (e) => onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat))
+    // ─── RANGER V3 END: 15-mission-plan ───
 
     // After every setStyle, the style reloads and wipes sources/layers.
     // styledata fires once the new style is ready — re-add our layers here.
@@ -505,6 +623,7 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
     if (m.getLayer(RASTER_LAYER)) {
       m.setPaintProperty(RASTER_LAYER, "raster-opacity", raster.opacity ?? 1)
       if (m.getLayer(TRACK_LAYER)) m.moveLayer(RASTER_LAYER, TRACK_LAYER)
+      ensureRouteOrder(m) // 15-mission-plan: keep the route over imagery
     }
   }, [raster, mapReady])
 
@@ -603,6 +722,66 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
       sigs.clear() // 09-live-console
     }
   }, [])
+
+  // ─── RANGER V3 START: 15-mission-plan ───
+  // ── waypoints: route line + numbered markers (DOM, so they survive setStyle) ──
+  useEffect(() => {
+    const wps = waypoints ?? []
+    pendingRoute.current = wps
+    const m = map.current
+    if (!m || !mapReady) return
+    const src = m.getSource(ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined
+    src?.setData(routeData(wps))
+
+    const markers = waypointMarkers.current
+    const sigs = waypointSigs.current
+    while (markers.length > wps.length) {
+      markers.pop()!.remove()
+      sigs.pop()
+    }
+    wps.forEach((wp, i) => {
+      const sig = `${wp.label}|${wp.state}`
+      if (markers[i] && sigs[i] === sig) {
+        markers[i].setLngLat([wp.lng, wp.lat])
+        return
+      }
+      markers[i]?.remove()
+      markers[i] = new maplibregl.Marker({ element: buildWaypointEl(wp) }).setLngLat([wp.lng, wp.lat]).addTo(m)
+      sigs[i] = sig
+    })
+  }, [waypoints, mapReady])
+
+  useEffect(() => {
+    const markers = waypointMarkers.current
+    const sigs = waypointSigs.current
+    return () => {
+      for (const mk of markers) mk.remove()
+      markers.length = 0
+      sigs.length = 0
+    }
+  }, [])
+
+  // ── fit to waypoints when the key changes (mission load), never per click ──
+  useEffect(() => {
+    const m = map.current
+    const wps = pendingRoute.current
+    if (!m || !mapReady || fitToWaypointsKey == null || wps.length === 0) return
+    if (wps.length === 1) {
+      m.flyTo({ center: [wps[0].lng, wps[0].lat], zoom: 17, duration: 600 })
+      return
+    }
+    const b = new maplibregl.LngLatBounds()
+    for (const w of wps) b.extend([w.lng, w.lat])
+    m.fitBounds(b, { padding: 60, maxZoom: 18, duration: 600 })
+  }, [fitToWaypointsKey, mapReady])
+
+  // ── crosshair while clicks add waypoints ──
+  useEffect(() => {
+    const m = map.current
+    if (!m || !mapReady) return
+    m.getCanvas().style.cursor = onMapClick ? "crosshair" : ""
+  }, [onMapClick, mapReady])
+  // ─── RANGER V3 END: 15-mission-plan ───
 
   // ── expand: container size changes, so MapLibre needs a resize ──
   useEffect(() => {

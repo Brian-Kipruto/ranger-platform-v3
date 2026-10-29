@@ -6,6 +6,10 @@
  * camera and the drive panel can't point at different robots. The dashboard
  * DRIVE panel stays; the one-driver lease (4409) makes two placements safe.
  * The mission map, waypoint list, and command panel land in later passes.
+ *
+ * F15 fork 7: map | camera in equal halves on top, mission plan | drive below.
+ * Everything stays mounted: a tab or hidden camera would either reconnect the
+ * MJPEG on every toggle or keep the Orin encoding for nobody.
  */
 import { MonoLabel } from "@/components/console/MonoLabel"
 import { CameraPanel } from "@/components/camera/CameraPanel"
@@ -14,6 +18,13 @@ import { Panel } from "@/components/console/Panel"
 import { DrivePanel } from "@/components/dashboard/DrivePanel"
 import { useAuthStore } from "@/stores/authStore"
 import { VIDEO_CONFIG } from "@/lib/video"
+// ─── RANGER V3 END: 14-mission-drive ───
+// ─── RANGER V3 START: 15-mission-plan ───
+import { FieldMap } from "@/components/map/FieldMap"
+import { MissionPlanPanel } from "@/components/mission/MissionPlanPanel"
+import { useMissionPlan } from "@/components/mission/useMissionPlan"
+// ─── RANGER V3 END: 15-mission-plan ───
+// ─── RANGER V3 START: 14-mission-drive ───
 
 function DriveNote({ title, lines }: { title: string; lines: string[] }) {
   return (
@@ -44,6 +55,10 @@ export default function MissionControlPage() {
     drive = <DrivePanel key={robotId} robotId={robotId} />
   }
   // ─── RANGER V3 END: 14-mission-drive ───
+  // ─── RANGER V3 START: 15-mission-plan ───
+  const accent = useAuthStore((s) => s.user?.organization?.theme_color ?? "#0ea5e9")
+  const plan = useMissionPlan(robotId)
+  // ─── RANGER V3 END: 15-mission-plan ───
 
   return (
     <div className="p-[18px] flex flex-col gap-[18px]">
@@ -53,12 +68,25 @@ export default function MissionControlPage() {
         </MonoLabel>
       </div>
 
-      {/* ─── RANGER V3 START: 14-mission-drive ─── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-[14px] items-start">
+      {/* ─── RANGER V3 START: 15-mission-plan ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-[14px] items-start">
+        <FieldMap
+          accent={accent}
+          height="45vh"
+          expandable
+          headerTitle="MAP"
+          headerSub={robotId ?? undefined}
+          waypoints={plan.mapWaypoints}
+          onMapClick={plan.locked ? undefined : plan.addPoint}
+          fitToWaypointsKey={plan.fitKey}
+        />
         <CameraPanel />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-[14px] items-start">
+        <MissionPlanPanel plan={plan} robotId={robotId} />
         {drive}
       </div>
-      {/* ─── RANGER V3 END: 14-mission-drive ─── */}
+      {/* ─── RANGER V3 END: 15-mission-plan ─── */}
     </div>
   )
 }
