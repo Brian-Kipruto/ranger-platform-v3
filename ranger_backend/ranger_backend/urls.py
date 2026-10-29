@@ -19,6 +19,9 @@ urlpatterns = [
     # lands under the same prefix.
     path("api/satellite/", include("satellite_integration.urls")),
     # ─── RANGER V3 END: satellite EO (F10.2) ───
+    # ─── RANGER V3 START: 15-mission-plan ───
+    path("api/", include("missions.urls")),
+    # ─── RANGER V3 END: 15-mission-plan ───
 ]
 
 if settings.DEBUG:
