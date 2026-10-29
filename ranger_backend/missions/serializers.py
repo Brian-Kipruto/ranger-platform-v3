@@ -7,8 +7,10 @@ Read and write shapes are separate on purpose:
   * MissionSerializer        — what the console sees. Waypoints as {lat, lon}.
   * MissionWriteSerializer   — what the console sends. organization and
     created_by are NEVER accepted from the payload; the view sets them from
-    the request. robot is resolved against the caller's org only, so a
-    foreign robot id is "does not exist", not "forbidden" (no existence leak).
+    the request. The robot is addressed by robot_id_str, the identifier the
+    console already holds (VITE_VIDEO_ROBOT_ID, the teleop socket), and is
+    resolved against the caller's org only, so a foreign robot is "does not
+    exist", not "forbidden" (no existence leak).
 
 Waypoints are named {lat, lon} objects, never positional pairs, and every
 point goes through core.geo.point_from_latlon. All waypoints must fall inside
@@ -71,7 +73,9 @@ def _points_in_one_region(waypoints):
 
 
 class MissionWriteSerializer(serializers.ModelSerializer):
-    robot = serializers.PrimaryKeyRelatedField(queryset=Robot.objects.none())
+    robot_id_str = serializers.SlugRelatedField(
+        source="robot", slug_field="robot_id_str", queryset=Robot.objects.none()
+    )
     threshold_m = serializers.FloatField(
         min_value=THRESHOLD_M_MIN, max_value=THRESHOLD_M_MAX, required=False
     )
@@ -79,13 +83,13 @@ class MissionWriteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Mission
-        fields = ("name", "description", "robot", "threshold_m", "waypoints")
+        fields = ("name", "description", "robot_id_str", "threshold_m", "waypoints")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         org = getattr(self.context["request"].user, "organization", None)
         # Tenancy: only the caller's robots resolve. No org -> nothing resolves.
-        self.fields["robot"].queryset = (
+        self.fields["robot_id_str"].queryset = (
             Robot.objects.filter(organization=org) if org else Robot.objects.none()
         )
 

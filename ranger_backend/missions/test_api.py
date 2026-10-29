@@ -28,7 +28,7 @@ def detail(pk):
 
 
 def payload(robot, waypoints=NAIROBI_ROUTE, **extra):
-    return {"name": "North sweep", "description": "", "robot": robot.pk,
+    return {"name": "North sweep", "description": "", "robot_id_str": robot.robot_id_str,
             "waypoints": waypoints, **extra}
 
 
@@ -67,6 +67,12 @@ class TestCreate:
             (i, pytest.approx(w["lat"]), pytest.approx(w["lon"])) for i, w in enumerate(NAIROBI_ROUTE)
         ]
         assert all(w["status"] == "PENDING" and w["completed_at"] is None for w in created["waypoints"])
+
+    def test_robot_pk_is_not_accepted(self, authed_client, robot):
+        body = payload(robot)
+        del body["robot_id_str"]
+        r = authed_client.post(LIST, {**body, "robot": robot.pk}, format="json")
+        assert r.status_code == 400 and "robot_id_str" in r.data
 
     def test_org_and_creator_ignored_in_payload(self, authed_client, robot, org, other_org):
         r = authed_client.post(LIST, payload(robot, organization=other_org.pk, created_by=999), format="json")
@@ -142,7 +148,7 @@ class TestTenancy:
 
     def test_foreign_robot_rejected(self, authed_client, other_robot):
         r = authed_client.post(LIST, payload(other_robot), format="json")
-        assert r.status_code == 400 and "robot" in r.data
+        assert r.status_code == 400 and "robot_id_str" in r.data
         assert Mission.objects.count() == 0
 
     def test_user_without_org_sees_nothing_and_cannot_create(self, created, api_client, robot):
