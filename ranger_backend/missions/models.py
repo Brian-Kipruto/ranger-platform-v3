@@ -108,7 +108,16 @@ class Mission(models.Model):
                 condition=models.Q(threshold_m__gte=THRESHOLD_M_MIN)
                 & models.Q(threshold_m__lte=THRESHOLD_M_MAX),
                 name="mission_threshold_m_range",
-            )
+            ),
+            # ─── RANGER V3 START: 15-mission-advance ───
+            # Ingest advances "the robot's active mission": two would make
+            # that ambiguous, so the database refuses a second one.
+            models.UniqueConstraint(
+                fields=["robot"],
+                condition=models.Q(status="IN_PROGRESS"),
+                name="one_in_progress_mission_per_robot",
+            ),
+            # ─── RANGER V3 END: 15-mission-advance ───
         ]
         # ─── RANGER V3 END: 15-mission-plan ───
 

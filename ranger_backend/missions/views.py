@@ -13,7 +13,11 @@ Plain DRF generics + IsAuthenticated, the accounts/core/satellite shape
 filters on it and a user with no org sees nothing. Another tenant's mission
 is 404, never 403. Starting a mission (launch_mission) is 6b.
 """
-from django.db import transaction
+from django.db import IntegrityError, transaction
+# ─── RANGER V3 START: 15-mission-advance ───
+from django.utils import timezone
+from rest_framework.views import APIView
+# ─── RANGER V3 END: 15-mission-advance ───
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 
@@ -75,3 +79,39 @@ class MissionDetailAPIView(generics.RetrieveUpdateAPIView):
         mission = _org_missions(request.user).get(pk=mission.pk)
         return Response(MissionSerializer(mission).data)
 # ─── RANGER V3 END: 15-mission-plan ───
+
+
+# ─── RANGER V3 START: 15-mission-advance ───
+class MissionStartAPIView(APIView):
+    """POST /api/missions/<id>/start/ — PENDING -> IN_PROGRESS (F15 fork 3).
+
+    404 another tenant's mission (checked first, so a 403 can't confirm it
+    exists); 403 without missions.launch_mission; 409 if not PENDING or the
+    robot already has a running mission. From here ros_ingest advances it.
+    """
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def post(self, request, pk):
+        if not _org_missions(request.user).filter(pk=pk).exists():
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not request.user.has_perm("missions.launch_mission"):
+            return Response({"detail": "Needs missions.launch_mission."}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            with transaction.atomic():
+                mission = Mission.objects.select_for_update().get(pk=pk)
+                if mission.status != Mission.Status.PENDING:
+                    return Response(
+                        {"detail": f"Mission is {mission.status}; only PENDING missions can be started."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                mission.status = Mission.Status.IN_PROGRESS
+                mission.started_at = timezone.now()
+                mission.save(update_fields=["status", "started_at", "updated_at"])
+        except IntegrityError:  # one_in_progress_mission_per_robot
+            return Response(
+                {"detail": "This robot already has a mission in progress."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        mission = _org_missions(request.user).get(pk=pk)
+        return Response(MissionSerializer(mission).data)
+# ─── RANGER V3 END: 15-mission-advance ───

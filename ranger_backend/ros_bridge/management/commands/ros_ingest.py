@@ -23,6 +23,12 @@ robot time, each at most once, labelled weakest(robot claim, --source). The
 row and its readings are one transaction. Counted, never stored:
   <key>_attached / <key>_stale    per fix
   <key>_no_stamp / <key>_empty    rejected on arrival
+
+F15 mission advance (missions/progress.py, fork 1): every saved fix is offered
+to the robot's IN_PROGRESS mission inside the row's transaction; the row is
+attached to that mission (SensorLog.mission). Counted:
+  wp_completed / mission_completed
+Skipped fixes are never offered — a fix that isn't stored can't complete anything.
 """
 import math
 import threading
@@ -40,6 +46,9 @@ from core.geo import point_from_latlon
 from core.geo import REGION_CHOICES, REGION_NONE, resolve_region
 # ─── RANGER V3 END: 11-ingest-region ───
 from core.models import AirQualityLog, ImuBaroLog, RadiationLog, Robot, SensorLog
+# ─── RANGER V3 START: 15-mission-advance ───
+from missions.progress import advance
+# ─── RANGER V3 END: 15-mission-advance ───
 # ─── RANGER V3 START: 09-live-console ───
 from ros_bridge.broadcast import broadcast_sensorlog
 # ─── RANGER V3 END: 09-live-console ───
@@ -233,8 +242,14 @@ class Command(BaseCommand):
         # Row + readings commit together or not at all: a row must never
         # exist without the readings it was written with, or vice versa.
         with transaction.atomic():
+            # ─── RANGER V3 START: 15-mission-advance ───
+            # Advance first: the row joins the mission it was measured for,
+            # including the fix that completes it. Rolls back with the row.
+            adv = advance(self.robot, point, ts)
+            # ─── RANGER V3 END: 15-mission-advance ───
             log = SensorLog.objects.create(
                 robot=self.robot,
+                mission=adv.mission if adv else None,  # 15-mission-advance
                 timestamp=ts,
                 location=point,
                 source=self.source,
@@ -244,6 +259,14 @@ class Command(BaseCommand):
         # ─── RANGER V3 END: 13-reading-assembly ───
         self._count("saved")
         extra = f" + {' '.join(tags)}" if tags else ""
+        # ─── RANGER V3 START: 15-mission-advance ───
+        if adv and adv.completed:
+            self._count("wp_completed")
+            extra += f" · mission #{adv.mission.pk} wp {adv.waypoint.order + 1} COMPLETED ({adv.distance_m:.1f} m)"
+            if adv.mission_completed:
+                self._count("mission_completed")
+                extra += " · MISSION COMPLETED"
+        # ─── RANGER V3 END: 15-mission-advance ───
         self.stdout.write(f"SensorLog #{log.pk}: {lat:.6f}, {lon:.6f} [{self.source}] @ {ts:%H:%M:%S}Z{extra}")
         # ─── RANGER V3 START: 09-live-console ───
         self._broadcast(log)
