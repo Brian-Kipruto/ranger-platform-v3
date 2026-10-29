@@ -11,7 +11,18 @@ nullable Polygon. The AOI is new — nothing to migrate from — and is what
 satellite queries join against in F10.2. See ADR-0011.
 """
 from django.contrib.gis.db import models as gis_models
+# ─── RANGER V3 START: 15-mission-plan ───
+from django.core.validators import MaxValueValidator, MinValueValidator
+# ─── RANGER V3 END: 15-mission-plan ───
 from django.db import models
+
+# ─── RANGER V3 START: 15-mission-plan ───
+# Proximity-completion radius (F15 fork 2). GPS is ~2-5 m; below 1 m a waypoint
+# can stay PENDING forever, above 50 m "reached" stops meaning anything.
+THRESHOLD_M_DEFAULT = 5.0
+THRESHOLD_M_MIN = 1.0
+THRESHOLD_M_MAX = 50.0
+# ─── RANGER V3 END: 15-mission-plan ───
 
 
 class Mission(models.Model):
@@ -71,6 +82,17 @@ class Mission(models.Model):
     # Arbitrary tenant-defined tags, same pattern as Robot.metadata.
     metadata = models.JSONField(default=dict, blank=True)
 
+    # ─── RANGER V3 START: 15-mission-plan ───
+    threshold_m = models.FloatField(
+        default=THRESHOLD_M_DEFAULT,
+        validators=[MinValueValidator(THRESHOLD_M_MIN), MaxValueValidator(THRESHOLD_M_MAX)],
+        help_text="A located fix within this many metres of the active "
+                  "waypoint completes it (F15).",
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    # ─── RANGER V3 END: 15-mission-plan ───
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -79,6 +101,16 @@ class Mission(models.Model):
         permissions = (
             ("launch_mission", "Can start, pause, resume, and abort missions"),
         )
+        # ─── RANGER V3 START: 15-mission-plan ───
+        # Validators only run in full_clean; this holds for every write path.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(threshold_m__gte=THRESHOLD_M_MIN)
+                & models.Q(threshold_m__lte=THRESHOLD_M_MAX),
+                name="mission_threshold_m_range",
+            )
+        ]
+        # ─── RANGER V3 END: 15-mission-plan ───
 
     def __str__(self) -> str:
         return f"{self.name} [{self.status}]"
@@ -114,6 +146,9 @@ class Waypoint(models.Model):
         choices=Status.choices,
         default=Status.PENDING,
     )
+    # ─── RANGER V3 START: 15-mission-plan ───
+    completed_at = models.DateTimeField(null=True, blank=True)
+    # ─── RANGER V3 END: 15-mission-plan ───
 
     created_at = models.DateTimeField(auto_now_add=True)
 
