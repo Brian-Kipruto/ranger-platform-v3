@@ -166,4 +166,20 @@ class TestInPdf:
         r = generate_report(mission)
         text = " ".join(" ".join(p.extract_text() for p in PdfReader(tmp_path / r.pdf_path).pages).split())
         assert "Survey mean 14.96 µg/m³, below the guideline value" in text
+    def test_short_survey_printed_in_seconds(self, mission, sensor_log_at, settings, tmp_path):
+        from datetime import timedelta
+        from pypdf import PdfReader
+        from django.utils import timezone
+        from missions.models import Mission
+        from reports.generate import generate_report
+        settings.MEDIA_ROOT = tmp_path
+        t0 = timezone.now()
+        for i in range(2):
+            sensor_log_at(-1.29, 36.82, mission=mission, radiation=10.0, pm25=10.0, pm10=10.0,
+                          timestamp=t0 + timedelta(seconds=45 * i))
+        mission.status = Mission.Status.COMPLETED
+        mission.save(update_fields=["status"])
+        r = generate_report(mission)
+        text = " ".join(" ".join(p.extract_text() for p in PdfReader(tmp_path / r.pdf_path).pages).split())
+        assert "this survey covered 45 s" in text and "covered 0 min" not in text
 # ─── RANGER V3 END: 16-report-thresholds ───

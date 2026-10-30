@@ -7,10 +7,27 @@
 <head>
 <meta charset="utf-8">
 <title>Compliance report — {{ mission.name }}</title>
+{# PDF metadata: the weakest tier is machine-readable, not only printed. #}
+<meta name="description" content="Weakest provenance: {{ summary.weakest_source|upper }}. Format {{ format_version }}.">
+<meta name="keywords" content="provenance-{{ summary.weakest_source }}">
 <style>
   @page { size: A4; margin: 18mm 16mm 20mm;
-    @bottom-left { content: "R.A.N.G.E.R. compliance report · format {{ format_version }}"; font-size: 7.5pt; color: #555; }
-    @bottom-right { content: "Page " counter(page) " of " counter(pages); font-size: 7.5pt; color: #555; } }
+    /* Margin boxes do not inherit body's font: set it, or they fall back
+       to a serif. */
+    @bottom-left { content: "R.A.N.G.E.R. compliance report · format {{ format_version }}"; font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 7.5pt; color: #555; }
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 7.5pt; color: #555; }
+    {% if marking.band %}
+    @top-center { content: "{{ marking.band }}"; font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 8pt; font-weight: 700; letter-spacing: 0.02em;
+      color: {% if marking.watermark %}#7a0000{% else %}#5a3d00{% endif %};
+      background: {% if marking.watermark %}#ffe3e3{% else %}#fff1cc{% endif %};
+      border: 0.6pt solid {% if marking.watermark %}#b00000{% else %}#b07800{% endif %};
+      padding: 1.2mm 3mm; width: 100%; text-align: center; vertical-align: middle; }
+    {% endif %} }
+  /* position: fixed repeats on every page in WeasyPrint. Low alpha keeps the
+     tables beneath readable. */
+  .watermark { position: fixed; top: 105mm; left: -20mm; width: 220mm; text-align: center;
+    font-size: 88pt; font-weight: 800; letter-spacing: 0.08em; color: rgba(176, 0, 0, 0.10);
+    transform: rotate(-35deg); }
   body { font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 9.5pt; color: #111; }
   h1 { font-size: 16pt; margin: 0 0 2mm; }
   h2 { font-size: 11.5pt; margin: 7mm 0 2mm; border-bottom: 0.4pt solid #999; padding-bottom: 1mm; }
@@ -37,10 +54,13 @@
   table.legend td { border: none; padding: 0 1.5mm 0 0; font-size: 8pt; white-space: nowrap; vertical-align: middle; }
   table.legend img { width: 55mm; height: 2.4mm; border: 0.4pt solid #999; display: block; }
   .omitted { border: 0.4pt dashed #999; padding: 3mm; color: #555; font-size: 8.5pt; }
+  .keep-next { page-break-after: avoid; }
+  .exceedance { page-break-before: avoid; }
   .mono { font-family: "DejaVu Sans Mono", monospace; font-size: 7.5pt; word-break: break-all; }
 </style>
 </head>
 <body>
+{% if marking.watermark %}<div class="watermark">{{ marking.watermark }}</div>{% endif %}
 
 <h1>Environmental survey report</h1>
 <table class="meta">
@@ -104,7 +124,7 @@
         {% if r.list_withheld %}<br><span class="note">{{ r.list_withheld }}</span>{% endif %}
       {% else %}
         Survey mean {{ r.mean|floatformat:r.mean_decimals }} {{ r.unit }}, {% if r.mean_above %}above{% else %}below{% endif %} the guideline value.
-        <br><span class="note">Indicative only: the guideline is a 24-hour statistic; this survey covered {% widthratio r.window_seconds 60 1 %} min.</span>
+        <br><span class="note">Indicative only: the guideline is a 24-hour statistic; this survey covered {% if r.window_seconds < 120 %}{{ r.window_seconds|floatformat:0 }} s{% else %}{% widthratio r.window_seconds 60 1 %} min{% endif %}.</span>
       {% endif %}
     </td>
   </tr>
@@ -113,8 +133,8 @@
 {% else %}<p class="note">No reading in this report has an applicable reference level.</p>{% endif %}
 
 {% for l in c.exceedance_lists %}
-<p><strong>{{ l.label }} readings above the {{ l.level|floatformat:l.decimals }} {{ l.unit }} investigation level ({{ l.source|upper }})</strong>{% if l.total > l.rows|length %}, highest {{ l.rows|length }} of {{ l.total }}; all are in the attached CSV{% endif %}:</p>
-<table>
+<p class="keep-next"><strong>{{ l.label }} readings above the {{ l.level|floatformat:l.decimals }} {{ l.unit }} investigation level ({{ l.source|upper }})</strong>{% if l.total > l.rows|length %}, highest {{ l.rows|length }} of {{ l.total }}; all are in the attached CSV{% endif %}:</p>
+<table class="exceedance">
   <tr><th>Time (UTC)</th><th class="num">Latitude</th><th class="num">Longitude</th><th class="num">{{ l.label }} ({{ l.unit }})</th></tr>
   {% for x in l.rows %}<tr><td>{{ x.timestamp }}</td><td class="num">{{ x.lat|floatformat:6 }}</td><td class="num">{{ x.lon|floatformat:6 }}</td><td class="num">{{ x.value|floatformat:l.decimals }}</td></tr>{% endfor %}
 </table>
