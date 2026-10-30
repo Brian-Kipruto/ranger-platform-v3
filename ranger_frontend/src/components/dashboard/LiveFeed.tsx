@@ -20,6 +20,7 @@
 import { useEffect } from "react"
 import { getMe } from "@/api/auth"
 import { useLiveStore } from "@/stores/liveStore"
+import { useMissionLiveStore } from "@/stores/missionLiveStore" // 15-mission-live
 
 const SUBPROTOCOL = "ranger.v1"
 const CLOSE_UNAUTHENTICATED = 4401
@@ -58,6 +59,8 @@ export function LiveFeed({ token }: { token: string }) {
         } catch {
           return
         }
+        // 15-mission-live: mission.progress goes to its own store, rows to upsert.
+        if (useMissionLiveStore.getState().push(data)) return
         const pos = upsert(data)
         if (pos && import.meta.env.DEV) {
           // 2c latency check: browser receipt minus robot stamp.

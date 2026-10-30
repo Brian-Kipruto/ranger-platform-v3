@@ -8,6 +8,7 @@
 import { Panel } from "@/components/console/Panel"
 import { MonoLabel } from "@/components/console/MonoLabel"
 import { MAX_WAYPOINTS, THRESHOLD_M } from "@/types/mission.types"
+import { useAuthStore } from "@/stores/authStore" // 15-mission-live
 import type { useMissionPlan } from "./useMissionPlan"
 
 type Plan = ReturnType<typeof useMissionPlan>
@@ -18,6 +19,10 @@ const input = "w-full bg-transparent border border-border rounded-md px-2 py-1 t
 export function MissionPlanPanel({ plan, robotId }: { plan: Plan; robotId: string | null }) {
   const { missions, selected, selectedId, draft, dirty, saving, errors, note, locked, canSave, thresholdOk } = plan
   const status = selected ? selected.status : "NEW"
+  // ─── RANGER V3 START: 15-mission-live ───
+  const canLaunch = useAuthStore((s) => !!s.user && s.hasPermission("missions.launch_mission"))
+  const { progress } = plan
+  // ─── RANGER V3 END: 15-mission-live ───
 
   return (
     <Panel
@@ -97,22 +102,47 @@ export function MissionPlanPanel({ plan, robotId }: { plan: Plan; robotId: strin
               ))}
             </ol>
 
+            {/* ─── RANGER V3 START: 15-mission-live ─── */}
+            {progress && selected && selected.status !== "PENDING" && (
+              <div className="flex items-center gap-3" data-testid="mission-progress">
+                <div className="flex-1 h-[4px] rounded bg-border overflow-hidden">
+                  <div className="h-full bg-ok transition-all duration-500"
+                    style={{ width: `${progress.total ? (100 * progress.done) / progress.total : 0}%` }} />
+                </div>
+                <MonoLabel size="xs" tone={selected.status === "COMPLETED" ? "ok" : "accent"}>
+                  {progress.done}/{progress.total}
+                  {progress.active !== null ? ` · ACTIVE WP ${progress.active + 1}` : ` · ${selected.status}`}
+                </MonoLabel>
+              </div>
+            )}
             {locked && selected && (
               <p className="font-mono text-[11px] text-fg-faint">
                 {selected.status} missions are read-only.
               </p>
             )}
+            {/* ─── RANGER V3 END: 15-mission-live ─── */}
             {errors.map((e) => (
               <p key={e} className="font-mono text-[11px] text-alert break-words">{e}</p>
             ))}
             {note && <MonoLabel size="xs" tone="accent">{note}</MonoLabel>}
 
-            {!locked && (
-              <button type="button" onClick={plan.save} disabled={!canSave}
-                className="self-end px-3 py-1 rounded-md bg-[var(--accent)] text-white text-[11px] font-mono disabled:opacity-40">
-                {saving ? "SAVING…" : selectedId === null ? "SAVE" : "SAVE CHANGES"}
-              </button>
-            )}
+            {/* ─── RANGER V3 START: 15-mission-live ─── */}
+            <div className="flex items-center justify-end gap-2">
+              {selected?.status === "PENDING" && canLaunch && (
+                <button type="button" onClick={plan.start} disabled={!plan.canStart}
+                  title={dirty ? "Save changes before starting" : undefined}
+                  className="px-3 py-1 rounded-md border border-ok text-ok text-[11px] font-mono disabled:opacity-40">
+                  {plan.starting ? "STARTING…" : "START"}
+                </button>
+              )}
+              {!locked && (
+                <button type="button" onClick={plan.save} disabled={!canSave}
+                  className="px-3 py-1 rounded-md bg-[var(--accent)] text-white text-[11px] font-mono disabled:opacity-40">
+                  {saving ? "SAVING…" : selectedId === null ? "SAVE" : "SAVE CHANGES"}
+                </button>
+              )}
+            </div>
+            {/* ─── RANGER V3 END: 15-mission-live ─── */}
           </>
         )}
       </div>

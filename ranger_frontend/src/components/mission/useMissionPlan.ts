@@ -9,9 +9,14 @@
  * map stops taking clicks rather than letting the operator plan into a wall.
  */
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { createMission, errorLines, listMissions, replaceMission } from "@/api/missions"
+import { createMission, errorLines, listMissions, replaceMission, startMission } from "@/api/missions"
+import { useMissionLiveStore } from "@/stores/missionLiveStore" // 15-mission-live
 import type { FieldMapWaypoint } from "@/components/map/FieldMap"
 import { MAX_WAYPOINTS, THRESHOLD_M, type LatLon, type Mission } from "@/types/mission.types"
+
+/** Backstop re-read while a mission runs (15-mission-live). The socket is the
+ *  fast path; this only bounds how long a lost event can hide a tick. */
+const SAFETY_REFRESH_MS = 10_000
 
 /** 1e-7 deg ~ 1 cm. More digits are noise from the click, not precision. */
 const round7 = (x: number) => Math.round(x * 1e7) / 1e7
@@ -105,6 +110,57 @@ export function useMissionPlan(robotId: string | null) {
 
   const remove = (i: number) => edit({ ...draft, points: draft.points.filter((_, k) => k !== i) })
 
+  // ─── RANGER V3 START: 15-mission-live ───
+  // A mission.progress event for this robot -> re-read from the DB. The socket
+  // says "something moved"; the HTTP answer says what. While a mission runs,
+  // a slow re-read also covers an event lost to a socket or Redis blip.
+  const seq = useMissionLiveStore((s) => s.seq)
+  const lastRobot = useMissionLiveStore((s) => s.last?.robot)
+  const running = selected?.status === "IN_PROGRESS"
+  useEffect(() => {
+    if (!robotId || seq === 0 || lastRobot !== robotId) return
+    let live = true
+    listMissions(robotId).then((list) => live && setMissions(list), () => {})
+    return () => {
+      live = false
+    }
+  }, [seq, lastRobot, robotId])
+  useEffect(() => {
+    if (!robotId || !running) return
+    const t = setInterval(() => {
+      listMissions(robotId).then(setMissions, () => {})
+    }, SAFETY_REFRESH_MS)
+    return () => clearInterval(t)
+  }, [robotId, running])
+
+  const [starting, setStarting] = useState(false)
+  const canStart = !!selected && selected.status === "PENDING" && !dirty && !starting
+  const start = async () => {
+    if (!selected || !canStart) return
+    setStarting(true)
+    setErrors([])
+    try {
+      await startMission(selected.id)
+      await reload()
+      setNote(`STARTED #${selected.id}`)
+    } catch (e) {
+      setErrors(errorLines(e))
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const progress = selected
+    ? {
+        done: selected.waypoints.filter((w) => w.status === "COMPLETED").length,
+        total: selected.waypoints.length,
+        active: selected.status === "IN_PROGRESS"
+          ? (selected.waypoints.find((w) => w.status === "PENDING")?.order ?? null)
+          : null,
+      }
+    : null
+  // ─── RANGER V3 END: 15-mission-live ───
+
   const threshold = Number(draft.threshold)
   const thresholdOk = draft.threshold.trim() !== "" && threshold >= THRESHOLD_M.min && threshold <= THRESHOLD_M.max
   const canSave = !locked && !saving && dirty && draft.name.trim() !== "" && draft.points.length > 0 && thresholdOk
@@ -153,6 +209,7 @@ export function useMissionPlan(robotId: string | null) {
   return {
     missions, selected, selectedId, draft, dirty, saving, errors, note, locked, canSave, thresholdOk, fitKey,
     mapWaypoints, select, edit, addPoint, move, remove, save,
+    canStart, starting, start, progress, // 15-mission-live
   }
 }
 // ─── RANGER V3 END: 15-mission-plan ───

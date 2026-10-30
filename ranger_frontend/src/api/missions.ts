@@ -27,6 +27,15 @@ export async function replaceMission(id: number, body: MissionWrite): Promise<Mi
   return data
 }
 
+// ─── RANGER V3 START: 15-mission-live ───
+/** PENDING -> IN_PROGRESS. 403 without missions.launch_mission; 409 if not
+ *  PENDING or the robot already has a running mission. */
+export async function startMission(id: number): Promise<Mission> {
+  const { data } = await api.post<Mission>(`/missions/${id}/start/`)
+  return data
+}
+// ─── RANGER V3 END: 15-mission-live ───
+
 /** DRF error body -> one readable line per field, for the panel. */
 export function errorLines(err: unknown): string[] {
   if (!axios.isAxiosError(err)) return [String(err)]
