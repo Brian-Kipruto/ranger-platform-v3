@@ -51,6 +51,9 @@ from missions.progress import advance
 # ─── RANGER V3 END: 15-mission-advance ───
 # ─── RANGER V3 START: 09-live-console ───
 from ros_bridge.broadcast import broadcast_sensorlog
+# ─── RANGER V3 START: 15-mission-live ───
+from ros_bridge.broadcast import broadcast_mission_progress
+# ─── RANGER V3 END: 15-mission-live ───
 # ─── RANGER V3 END: 09-live-console ───
 # ─── RANGER V3 START: 13-reading-assembly ───
 from ros_bridge.readings import SPECS, ReadingCache, stamp_to_datetime
@@ -270,6 +273,14 @@ class Command(BaseCommand):
         self.stdout.write(f"SensorLog #{log.pk}: {lat:.6f}, {lon:.6f} [{self.source}] @ {ts:%H:%M:%S}Z{extra}")
         # ─── RANGER V3 START: 09-live-console ───
         self._broadcast(log)
+        # ─── RANGER V3 START: 15-mission-live ───
+        if adv and adv.completed:
+            try:
+                broadcast_mission_progress(adv)
+                self._count("progress_broadcast")
+            except Exception:
+                self._count("progress_broadcast_error")  # the row broadcast already logged the outage
+        # ─── RANGER V3 END: 15-mission-live ───
 
     def _broadcast(self, log):
         """The DB row is the record; the socket is a view of it. A failed

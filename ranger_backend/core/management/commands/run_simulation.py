@@ -54,7 +54,7 @@ from missions.models import Mission, Waypoint
 # ─── RANGER V3 START: 15-sim-advance ───
 from core.geo import RABAT_VENUE, resolve_region
 from missions.progress import advance
-from ros_bridge.broadcast import broadcast_sensorlog
+from ros_bridge.broadcast import broadcast_mission_progress, broadcast_sensorlog
 # ─── RANGER V3 END: 15-sim-advance ───
 
 # Sensor codes we know how to simulate, mapped to the reading model they fill.
@@ -205,7 +205,9 @@ class Command(BaseCommand):
         self._driving = None      # mission pk we have positioned for
         self._broadcast_up = True
         self.counts = {"saved": 0, "broadcast": 0, "broadcast_error": 0,
-                       "wp_completed": 0, "mission_completed": 0}
+                       "wp_completed": 0, "mission_completed": 0,
+                       "progress_broadcast": 0, "progress_broadcast_error": 0}  # 15-mission-live
+        self._last_adv = None
         # Position state — start at the random-walk origin (per region).
         start = (options["start_lat"], options["start_lon"])
         if options["region"] != "kenya" and start == (DEFAULT_START_LAT, DEFAULT_START_LON):
@@ -329,6 +331,14 @@ class Command(BaseCommand):
                 self._move(robot, step_m)
                 log = self._write_log(robot, ts)
                 self._broadcast(log)
+                # ─── RANGER V3 START: 15-mission-live ───
+                if self._last_adv and self._last_adv.completed:
+                    try:
+                        broadcast_mission_progress(self._last_adv)
+                        self.counts["progress_broadcast"] += 1
+                    except Exception:
+                        self.counts["progress_broadcast_error"] += 1
+                # ─── RANGER V3 END: 15-mission-live ───
                 self.stdout.write(f"[{self.counts['saved']}] {ts:%H:%M:%S} ({self._lat:.6f}, {self._lon:.6f})")
                 time.sleep(delay)
         except KeyboardInterrupt:
@@ -425,6 +435,7 @@ class Command(BaseCommand):
         # ─── RANGER V3 START: 15-sim-advance ───
         point = point_from_latlon(lat=self._lat, lon=self._lon, region=self._region)
         adv = advance(robot, point, ts)  # the one decider — same as ros_ingest
+        self._last_adv = adv  # 15-mission-live: _run_live broadcasts it after commit
         log = SensorLog.objects.create(
             robot=robot,
             mission=adv.mission if adv else None,

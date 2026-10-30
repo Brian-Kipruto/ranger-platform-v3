@@ -87,4 +87,9 @@ class DashboardConsumer(AsyncJsonWebsocketConsumer):
 
     async def sensorlog_message(self, event):
         await self.send_json(event["payload"])
+
+    # ─── RANGER V3 START: 15-mission-live ───
+    async def mission_progress(self, event):  # group_send type "mission.progress"
+        await self.send_json(event["payload"])
+    # ─── RANGER V3 END: 15-mission-live ───
 # ─── RANGER V3 END: 09-live-console ───

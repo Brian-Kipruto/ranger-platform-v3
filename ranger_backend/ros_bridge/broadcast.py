@@ -74,3 +74,35 @@ def broadcast_sensorlog(log) -> None:
         {"type": "sensorlog.message", "payload": sensorlog_payload(log)},
     )
 # ─── RANGER V3 END: 09-live-console ───
+
+
+# ─── RANGER V3 START: 15-mission-live ───
+def mission_progress_payload(adv) -> dict:
+    """One waypoint just completed (missions.progress.Advance). Built from the
+    saved rows; the console re-reads the mission over HTTP for the full state."""
+    m, wp = adv.mission, adv.waypoint
+    return {
+        "type": "mission.progress",
+        "mission": m.pk,
+        "robot": m.robot.robot_id_str,
+        "mission_status": m.status,
+        "waypoint": {
+            "id": wp.pk,
+            "order": wp.order,
+            "status": wp.status,
+            "completed_at": wp.completed_at.isoformat().replace("+00:00", "Z"),
+        },
+        "distance_m": round(adv.distance_m, 2),
+    }
+
+
+def broadcast_mission_progress(adv) -> None:
+    """Sync; raises if the channel layer is down — the caller counts it, as
+    for rows. Same org group as the rows, so tenancy is the group's: another
+    org's console is never in it. Only sent when something completed."""
+    layer = get_channel_layer()
+    async_to_sync(layer.group_send)(
+        dashboard_group(adv.mission.organization_id),
+        {"type": "mission.progress", "payload": mission_progress_payload(adv)},
+    )
+# ─── RANGER V3 END: 15-mission-live ───
