@@ -88,6 +88,44 @@
   {% endfor %}
 </table>
 
+<h2>Reference levels</h2>
+{% with c=summary.comparisons %}
+<p class="note">Each level is cited below and labelled with its kind. None of them is a legal limit; readings are described as above or below a level, never as passing or failing. Comparisons are made per data tier, like the statistics. Registry {{ c.registry_version }}.</p>
+{% if c.rows %}
+<table>
+  <tr><th>Quantity</th><th>Tier</th><th>Reference</th><th>Survey</th></tr>
+  {% for r in c.rows %}
+  <tr>
+    <td class="qty">{{ r.label }}</td><td>{{ r.source|upper }}</td>
+    <td>{{ r.value|floatformat:r.decimals }} {{ r.unit }}, {{ r.kind }}<br><span class="note">{{ r.averaging }}</span></td>
+    <td>
+      {% if r.use == "exceedance" %}
+        {{ r.n_above }} of {{ r.n }} readings above ({{ r.pct_above|floatformat:1 }}%); maximum {{ r.max|floatformat:r.decimals }} {{ r.unit }}.
+        {% if r.list_withheld %}<br><span class="note">{{ r.list_withheld }}</span>{% endif %}
+      {% else %}
+        Survey mean {{ r.mean|floatformat:r.mean_decimals }} {{ r.unit }}, {% if r.mean_above %}above{% else %}below{% endif %} the guideline value.
+        <br><span class="note">Indicative only: the guideline is a 24-hour statistic; this survey covered {% widthratio r.window_seconds 60 1 %} min.</span>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}<p class="note">No reading in this report has an applicable reference level.</p>{% endif %}
+
+{% for l in c.exceedance_lists %}
+<p><strong>{{ l.label }} readings above the {{ l.level|floatformat:l.decimals }} {{ l.unit }} investigation level ({{ l.source|upper }})</strong>{% if l.total > l.rows|length %}, highest {{ l.rows|length }} of {{ l.total }}; all are in the attached CSV{% endif %}:</p>
+<table>
+  <tr><th>Time (UTC)</th><th class="num">Latitude</th><th class="num">Longitude</th><th class="num">{{ l.label }} ({{ l.unit }})</th></tr>
+  {% for x in l.rows %}<tr><td>{{ x.timestamp }}</td><td class="num">{{ x.lat|floatformat:6 }}</td><td class="num">{{ x.lon|floatformat:6 }}</td><td class="num">{{ x.value|floatformat:l.decimals }}</td></tr>{% endfor %}
+</table>
+{% endfor %}
+
+{% for x in c.context %}
+<p class="note"><strong>Background, for context:</strong> {{ x.value|floatformat:0 }} {{ x.unit }}, {{ x.averaging }}. {{ x.note }}</p>
+{% endfor %}
+{% for n in c.not_compared %}<p class="note">{{ n }}</p>{% endfor %}
+{% endwith %}
+
 <h2 class="map-page">Survey map</h2>
 {% with m=detail.meta %}
 {% if detail.png %}
@@ -123,6 +161,11 @@
 {% endwith %}
 
 <h2>Sources cited</h2>
+{% if summary.comparisons.citations %}
+<p class="note">Reference levels:</p>
+<ul>{% for c in summary.comparisons.citations %}<li>{{ c }}</li>{% endfor %}</ul>
+<p class="note">Data provenance:</p>
+{% endif %}
 {% if summary.citations %}
 <ul>{% for c in summary.citations %}<li>{{ c }}</li>{% endfor %}</ul>
 {% else %}<p class="note">No provenance notes on these rows.</p>{% endif %}

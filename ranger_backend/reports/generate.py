@@ -31,6 +31,7 @@ from missions.models import Mission
 
 from . import map as report_map
 from . import stats
+from . import thresholds
 from .models import Report
 
 # Bump when the PDF's content or layout changes meaningfully. Printed in the
@@ -114,7 +115,8 @@ def _map_points(qs) -> list[dict]:
         "location", "timestamp", "source",
         "radiation_data__dose_rate_usvh", "radiation_data__radiation_value",
         "radiation_data__source",
-        "air_quality_data__pm25", "air_quality_data__source",
+        "air_quality_data__pm25", "air_quality_data__pm10",
+        "air_quality_data__source",
     )
     return [{
         "lon": r["location"].x, "lat": r["location"].y,
@@ -123,12 +125,12 @@ def _map_points(qs) -> list[dict]:
         "cpm": r["radiation_data__radiation_value"],
         "radiation_source": r["radiation_data__source"],
         "pm25": r["air_quality_data__pm25"],
+        "pm10": r["air_quality_data__pm10"],
         "air_quality_source": r["air_quality_data__source"],
     } for r in rows]
 
 
-def _figures(mission, qs) -> dict:
-    points = _map_points(qs)
+def _figures(mission, qs, points) -> dict:
     waypoints = [{"lon": w.location.x, "lat": w.location.y}
                  for w in mission.waypoints.order_by("order")]
     aoi = mission.area_of_interest
@@ -163,7 +165,9 @@ def generate_report(mission: Mission, *, user=None) -> Report:
         raise ReportError(f"Mission {mission.pk} has no sensor logs.")
 
     summary = stats.summarise(rows)
-    figures = _figures(mission, qs)
+    points = _map_points(qs)
+    figures = _figures(mission, qs, points)
+    summary["comparisons"] = thresholds.compare(summary, points)
     # What the map shows is part of the audit record, not just pixels.
     summary["map"] = {
         "context": figures["context"].meta or {"omitted": figures["context"].omitted},

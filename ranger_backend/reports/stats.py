@@ -165,6 +165,8 @@ def summarise(rows) -> dict:
         "position_sources": [t for t, n in matrix.get("position", {}).items() if n],
         "window_start": _utc(min(timestamps)) if timestamps else None,
         "window_end": _utc(max(timestamps)) if timestamps else None,
+        "window_seconds": (max(timestamps) - min(timestamps)).total_seconds()
+        if timestamps else None,
         "citations": notes,
         "quantities": quantity_stats(rows),
     }
