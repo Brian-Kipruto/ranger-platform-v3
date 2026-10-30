@@ -30,10 +30,21 @@
     transform: rotate(-35deg); }
   body { font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 9.5pt; color: #111; }
   h1 { font-size: 16pt; margin: 0 0 2mm; }
-  h2 { font-size: 11.5pt; margin: 7mm 0 2mm; border-bottom: 0.4pt solid #999; padding-bottom: 1mm; }
+  /* Tenant accent: rules and borders only, never text and never the
+     provenance band (reports/branding.py). Validated #rrggbb. */
+  h2 { font-size: 11.5pt; margin: 7mm 0 2mm; border-bottom: 0.8pt solid {{ brand.accent }}; padding-bottom: 1mm; }
+  .masthead { display: table; width: 100%; border-bottom: 2.4pt solid {{ brand.accent }}; padding-bottom: 2.5mm; margin-bottom: 4mm; }
+  .masthead .logo, .masthead .org { display: table-cell; vertical-align: middle; }
+  .masthead .logo { width: 1%; padding-right: 4mm; }
+  .masthead .logo img { max-height: 18mm; max-width: 60mm; }
+  .masthead .org { font-size: 12pt; font-weight: 700; }
+  .producer { font-size: 8pt; color: #555; margin: -1mm 0 3mm; }
   table { border-collapse: collapse; width: 100%; margin-bottom: 3mm; }
   th, td { border: 0.4pt solid #bbb; padding: 1.2mm 1.6mm; text-align: left; }
   th { background: #eee; font-weight: 600; }
+  /* A row split across a page break separates a value from its reference
+     or its tier. Rows move whole; long tables still break between rows. */
+  tr { page-break-inside: avoid; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .meta td { border: none; padding: 0.6mm 2mm 0.6mm 0; }
   .meta td:first-child { color: #555; width: 38mm; }
@@ -62,7 +73,12 @@
 <body>
 {% if marking.watermark %}<div class="watermark">{{ marking.watermark }}</div>{% endif %}
 
+<div class="masthead">
+  {% if brand.logo %}<div class="logo"><img src="{{ brand.logo.src }}" alt="{{ organization.name }}"></div>{% endif %}
+  <div class="org">{{ organization.name }}</div>
+</div>
 <h1>Environmental survey report</h1>
+<p class="producer">{{ brand.producer }}</p>
 <table class="meta">
   <tr><td>Organization</td><td>{{ organization.name }}</td></tr>
   <tr><td>Mission</td><td>{{ mission.name }} (#{{ mission.pk }})</td></tr>

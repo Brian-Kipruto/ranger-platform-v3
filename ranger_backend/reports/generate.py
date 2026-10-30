@@ -29,6 +29,7 @@ from core.exports import write_sensor_log_csv
 from core.models import SensorLog
 from missions.models import Mission
 
+from . import branding as report_branding
 from . import map as report_map
 from . import stats
 from . import thresholds
@@ -190,6 +191,8 @@ def generate_report(mission: Mission, *, user=None) -> Report:
     points = _map_points(qs)
     figures = _figures(mission, qs, points)
     summary["comparisons"] = thresholds.compare(summary, points)
+    brand = report_branding.branding(mission.organization)
+    summary["branding"] = {"accent": brand["accent"], "logo": brand["logo"] is not None}
     # What the map shows is part of the audit record, not just pixels.
     summary["map"] = {
         "context": figures["context"].meta or {"omitted": figures["context"].omitted},
@@ -225,6 +228,7 @@ def generate_report(mission: Mission, *, user=None) -> Report:
         "colour_bar_src": _data_uri(report_map.colour_bar_png()),
         "has_aoi": figures["has_aoi"],
         "marking": page_marking(summary["weakest_source"]),
+        "brand": brand,
         "n_waypoints": figures["n_waypoints"],
     })
     pdf = render_pdf(html, csv_text, csv_name)
