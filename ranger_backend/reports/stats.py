@@ -22,6 +22,8 @@ Statistics definitions match PostgreSQL so a psql query can check them:
   sd   = sample SD (ddof=1)          = stddev() / stddev_samp()
   Pxx  = linear interpolation        = percentile_cont(xx/100)
 """
+from datetime import timezone
+
 import numpy as np
 
 from core.models import SensorLog
@@ -131,10 +133,21 @@ def quantity_stats(rows) -> list[dict]:
             omitted = OMITTED.get((tier, key))
             if omitted:
                 block["omitted"] = omitted
+            elif not by_tier[tier]:
+                # e.g. an uncalibrated Geiger: CPM present, dose rate null on
+                # every reading. One plain line, not a row of empty cells.
+                block["omitted"] = (
+                    f"No values: {nulls[tier]} reading(s) carry no {label.lower()}."
+                )
             else:
                 block["stats"] = describe(by_tier[tier])
             blocks.append(block)
     return blocks
+
+
+def _utc(ts) -> str:
+    """'2026-10-30 04:30:43 UTC' — seconds precision, explicit zone."""
+    return ts.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def summarise(rows) -> dict:
@@ -150,8 +163,8 @@ def summarise(rows) -> dict:
         "weakest_source": weakest(present),
         "provenance_matrix": matrix,
         "position_sources": [t for t, n in matrix.get("position", {}).items() if n],
-        "window_start": min(timestamps).isoformat() if timestamps else None,
-        "window_end": max(timestamps).isoformat() if timestamps else None,
+        "window_start": _utc(min(timestamps)) if timestamps else None,
+        "window_end": _utc(max(timestamps)) if timestamps else None,
         "citations": notes,
         "quantities": quantity_stats(rows),
     }

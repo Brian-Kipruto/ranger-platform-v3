@@ -99,7 +99,7 @@ class TestGenerate:
 
     def test_pdf_prints_the_stats_and_weakest(self, surveyed, media):
         r = generate_report(surveyed)
-        text = PdfReader(media / r.pdf_path).pages[0].extract_text()
+        text = "\n".join(p.extract_text() for p in PdfReader(media / r.pdf_path).pages)
         assert "SIMULATED" in text
         assert "200.0" in text          # mean CPM, 1 decimal
         assert "bench run" in text      # citation
@@ -110,6 +110,27 @@ class TestGenerate:
         b = generate_report(surveyed)
         assert a.pk != b.pk and a.pdf_path != b.pdf_path
         assert (media / a.pdf_path).exists() and (media / b.pdf_path).exists()
+
+    def test_same_second_identical_pdfs_get_distinct_files(self, surveyed, media, monkeypatch):
+        # WeasyPrint is byte-deterministic within one wall-clock second. Two
+        # generations then had the same bytes, sha, name: the second
+        # overwrote the first and two rows shared one file. Frozen here.
+        import datetime as dt
+        fixed = dt.datetime(2026, 10, 30, 12, 0, 0, tzinfo=dt.timezone.utc)
+        monkeypatch.setattr(gen.timezone, "now", lambda: fixed)
+        monkeypatch.setattr(gen, "render_pdf", lambda *a, **k: b"%PDF-1.7 same bytes")
+        a = generate_report(surveyed)
+        b = generate_report(surveyed)
+        assert a.pdf_path != b.pdf_path
+        assert len(pdf_files(media)) == 2
+
+    def test_write_never_clobbers(self, media):
+        dest = media / "r.pdf"
+        dest.write_bytes(b"original")
+        with pytest.raises(FileExistsError):
+            gen._write_atomic(dest, b"new")
+        assert dest.read_bytes() == b"original"
+        assert [p.name for p in media.iterdir()] == ["r.pdf"]  # no temp left
 
     def test_reports_are_immutable(self, surveyed):
         r = generate_report(surveyed)

@@ -11,10 +11,12 @@ fsynced, renamed into place, and the Report row is created after. If the row
 fails, the file is removed. A row never points at a missing file, and a
 failed run leaves no file behind.
 """
+import base64
 import hashlib
 import io
 import logging
 import os
+import secrets
 import tempfile
 from pathlib import Path
 
@@ -27,12 +29,13 @@ from core.exports import write_sensor_log_csv
 from core.models import SensorLog
 from missions.models import Mission
 
+from . import map as report_map
 from . import stats
 from .models import Report
 
 # Bump when the PDF's content or layout changes meaningfully. Printed in the
 # PDF and stored on the row, so any report can be traced to its generator.
-REPORT_FORMAT_VERSION = "16.7a"
+REPORT_FORMAT_VERSION = "16.7b"
 
 REPORTS_SUBDIR = "reports"
 
@@ -74,6 +77,12 @@ def _csv_text(qs) -> str:
 
 
 def _write_atomic(dest: Path, data: bytes) -> None:
+    """Write `data` to `dest` atomically and NEVER over an existing file.
+
+    os.link fails if `dest` exists, where os.replace would silently clobber
+    it. A report already on disk may already be in someone's hands; two rows
+    pointing at one file is exactly the failure this refuses.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=".tmp-", suffix=".pdf")
     try:
@@ -81,10 +90,9 @@ def _write_atomic(dest: Path, data: bytes) -> None:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, dest)
-    except BaseException:
+        os.link(tmp, dest)
+    finally:
         Path(tmp).unlink(missing_ok=True)
-        raise
 
 
 def render_pdf(html: str, csv_text: str, csv_name: str) -> bytes:
@@ -101,6 +109,47 @@ def render_pdf(html: str, csv_text: str, csv_name: str) -> bytes:
     )
 
 
+def _map_points(qs) -> list[dict]:
+    rows = qs.order_by("timestamp", "id").values(
+        "location", "timestamp", "source",
+        "radiation_data__dose_rate_usvh", "radiation_data__radiation_value",
+        "radiation_data__source",
+        "air_quality_data__pm25", "air_quality_data__source",
+    )
+    return [{
+        "lon": r["location"].x, "lat": r["location"].y,
+        "timestamp": r["timestamp"], "source": r["source"],
+        "dose_rate_usvh": r["radiation_data__dose_rate_usvh"],
+        "cpm": r["radiation_data__radiation_value"],
+        "radiation_source": r["radiation_data__source"],
+        "pm25": r["air_quality_data__pm25"],
+        "air_quality_source": r["air_quality_data__source"],
+    } for r in rows]
+
+
+def _figures(mission, qs) -> dict:
+    points = _map_points(qs)
+    waypoints = [{"lon": w.location.x, "lat": w.location.y}
+                 for w in mission.waypoints.order_by("order")]
+    aoi = mission.area_of_interest
+    detail = report_map.detail_figure(points, aoi=aoi, waypoints=waypoints)
+
+    # The outline on the satellite scene: the AOI if the mission has one,
+    # otherwise the extent of what was actually surveyed.
+    if aoi is not None:
+        survey = report_map.Extent(*aoi.extent)
+    else:
+        survey = report_map.bbox_of([p["lon"] for p in points],
+                                    [p["lat"] for p in points])
+    context = report_map.context_figure(mission, survey)
+    return {"context": context, "detail": detail,
+            "has_aoi": aoi is not None, "n_waypoints": len(waypoints)}
+
+
+def _data_uri(png: bytes | None) -> str:
+    return "data:image/png;base64," + base64.b64encode(png).decode() if png else ""
+
+
 def generate_report(mission: Mission, *, user=None) -> Report:
     if mission.status != Mission.Status.COMPLETED:
         raise ReportError(
@@ -114,6 +163,12 @@ def generate_report(mission: Mission, *, user=None) -> Report:
         raise ReportError(f"Mission {mission.pk} has no sensor logs.")
 
     summary = stats.summarise(rows)
+    figures = _figures(mission, qs)
+    # What the map shows is part of the audit record, not just pixels.
+    summary["map"] = {
+        "context": figures["context"].meta or {"omitted": figures["context"].omitted},
+        "detail": figures["detail"].meta or {"omitted": figures["detail"].omitted},
+    }
     csv_text = _csv_text(qs)
     csv_sha = _sha256(csv_text.encode("utf-8"))
 
@@ -137,12 +192,22 @@ def generate_report(mission: Mission, *, user=None) -> Report:
         ],
         "csv_name": csv_name,
         "csv_sha256": csv_sha,
+        "context": figures["context"],
+        "context_src": _data_uri(figures["context"].png),
+        "detail": figures["detail"],
+        "detail_src": _data_uri(figures["detail"].png),
+        "colour_bar_src": _data_uri(report_map.colour_bar_png()),
+        "has_aoi": figures["has_aoi"],
+        "n_waypoints": figures["n_waypoints"],
     })
     pdf = render_pdf(html, csv_text, csv_name)
     pdf_sha = _sha256(pdf)
 
+    # The random token keeps names unique even when two generations in the
+    # same second produce byte-identical PDFs (WeasyPrint is deterministic
+    # within a second: CreationDate is its only varying field).
     rel = Path(REPORTS_SUBDIR) / mission.organization.slug / (
-        f"mission-{mission.pk}-{stamp}-{pdf_sha[:8]}.pdf"
+        f"mission-{mission.pk}-{stamp}-{pdf_sha[:8]}-{secrets.token_hex(4)}.pdf"
     )
     dest = Path(settings.MEDIA_ROOT) / rel
     _write_atomic(dest, pdf)

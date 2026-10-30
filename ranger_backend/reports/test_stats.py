@@ -101,6 +101,13 @@ class TestDescribe:
     def test_single_value_has_no_sd(self):
         assert stats.describe([5.0])["sd"] is None
 
+    def test_all_null_block_is_one_line_not_empty_stats(self):
+        # Uncalibrated tube: CPM on every reading, dose rate on none.
+        s = stats.summarise([row(i, rad=None, rad_src="simulated", cpm=30.0) for i in range(5)])
+        b = block(s, "dose_rate_usvh", "simulated")
+        assert "stats" not in b and "5 reading(s) carry no dose rate" in b["omitted"]
+        assert block(s, "cpm", "simulated")["stats"]["n"] == 5
+
     def test_null_values_counted_not_averaged(self):
         s = stats.summarise([row(0, aq_src="live", pm25=10.0),
                              row(1, aq_src="live", pm25=None)])
@@ -117,7 +124,13 @@ class TestSummary:
 
     def test_window_from_timestamps(self):
         s = stats.summarise([row(5), row(0), row(9)])
-        assert s["window_start"] == T0.isoformat()
-        assert s["window_end"] == (T0 + timedelta(seconds=9)).isoformat()
+        assert s["window_start"] == "2026-01-01 00:00:00 UTC"
+        assert s["window_end"] == "2026-01-01 00:00:09 UTC"
         assert s["row_count"] == 3
+
+    def test_window_drops_microseconds_and_converts_to_utc(self):
+        from datetime import timezone as tz
+        eat = tz(timedelta(hours=3))
+        s = stats.summarise([row(0) | {"timestamp": datetime(2026, 10, 30, 7, 30, 43, 493205, tzinfo=eat)}])
+        assert s["window_start"] == "2026-10-30 04:30:43 UTC"
 # ─── RANGER V3 END: 16-report-stats ───

@@ -22,6 +22,21 @@
   .meta td:first-child { color: #555; width: 38mm; }
   .weakest { font-weight: 700; }
   .note { color: #444; font-size: 8.5pt; }
+  figure { margin: 0 0 4mm; page-break-inside: avoid; }
+  /* Height-capped so a portrait site (Forole is 1.5x taller than wide) never
+     overflows the page or splits from its caption. */
+  figure { text-align: center; }
+  figure img { max-width: 100%; border: 0.4pt solid #999; }
+  figure.detail img { max-height: 118mm; }
+  figure.context img { max-height: 70mm; }
+  figcaption { text-align: left; }
+  .map-page { page-break-before: always; }
+  td.qty { white-space: nowrap; }
+  figcaption { font-size: 8.5pt; color: #333; margin-top: 1.5mm; }
+  table.legend { width: auto; margin: 1.5mm 0 0; }
+  table.legend td { border: none; padding: 0 1.5mm 0 0; font-size: 8pt; white-space: nowrap; vertical-align: middle; }
+  table.legend img { width: 55mm; height: 2.4mm; border: 0.4pt solid #999; display: block; }
+  .omitted { border: 0.4pt dashed #999; padding: 3mm; color: #555; font-size: 8.5pt; }
   .mono { font-family: "DejaVu Sans Mono", monospace; font-size: 7.5pt; word-break: break-all; }
 </style>
 </head>
@@ -32,11 +47,11 @@
   <tr><td>Organization</td><td>{{ organization.name }}</td></tr>
   <tr><td>Mission</td><td>{{ mission.name }} (#{{ mission.pk }})</td></tr>
   <tr><td>Instrument / robot</td><td>{{ robot.name }} ({{ robot.robot_id_str }})</td></tr>
-  <tr><td>Survey window</td><td>{{ summary.window_start }} → {{ summary.window_end }} (UTC, from row timestamps; positions: {{ summary.position_sources|join:", "|upper }})</td></tr>
-  {% if mission.started_at %}<tr><td>Mission started</td><td>{{ mission.started_at|utc|date:"c" }}</td></tr>{% endif %}
-  {% if mission.completed_at %}<tr><td>Mission completed</td><td>{{ mission.completed_at|utc|date:"c" }}</td></tr>{% endif %}
+  <tr><td>Survey window</td><td>{{ summary.window_start }} → {{ summary.window_end }} (from row timestamps; positions: {{ summary.position_sources|join:", "|upper }})</td></tr>
+  {% if mission.started_at %}<tr><td>Mission started</td><td>{{ mission.started_at|utc|date:"Y-m-d H:i:s" }} UTC</td></tr>{% endif %}
+  {% if mission.completed_at %}<tr><td>Mission completed</td><td>{{ mission.completed_at|utc|date:"Y-m-d H:i:s" }} UTC</td></tr>{% endif %}
   <tr><td>Rows</td><td>{{ summary.row_count }}</td></tr>
-  <tr><td>Generated</td><td>{{ generated_at|utc|date:"c" }} (UTC){% if generated_by %} by {{ generated_by.username }}{% endif %}</td></tr>
+  <tr><td>Generated</td><td>{{ generated_at|utc|date:"Y-m-d H:i:s" }} UTC{% if generated_by %} by {{ generated_by.username }}{% endif %}</td></tr>
   <tr><td>Weakest provenance</td><td class="weakest">{{ summary.weakest_source|upper }}</td></tr>
 </table>
 
@@ -55,7 +70,7 @@
   <tr><th>Quantity</th><th>Tier</th><th class="num">n</th><th class="num">Min</th><th class="num">Mean</th><th class="num">SD</th><th class="num">P50</th><th class="num">P95</th><th class="num">P99</th><th class="num">Max</th></tr>
   {% for b in summary.quantities %}
   <tr>
-    <td>{{ b.label }} ({{ b.unit }})</td><td>{{ b.source|upper }}</td>
+    <td class="qty">{{ b.label }} ({{ b.unit }})</td><td>{{ b.source|upper }}</td>
     {% if b.omitted %}
       <td colspan="8" class="note">{{ b.omitted }}</td>
     {% else %}{% with s=b.stats %}
@@ -69,9 +84,43 @@
       <td class="num">{{ s.max|floatformat:b.decimals }}</td>
     {% endwith %}{% endif %}
   </tr>
-  {% if b.null_count %}<tr><td colspan="10" class="note">{{ b.label }} {{ b.source|upper }}: {{ b.null_count }} reading(s) without a value, excluded.</td></tr>{% endif %}
+  {% if b.null_count and not b.omitted %}<tr><td colspan="10" class="note">{{ b.label }} {{ b.source|upper }}: {{ b.null_count }} reading(s) without a value, excluded.</td></tr>{% endif %}
   {% endfor %}
 </table>
+
+<h2 class="map-page">Survey map</h2>
+{% with m=detail.meta %}
+{% if detail.png %}
+<figure class="detail">
+  <img src="{{ detail_src }}" alt="Survey detail map">
+  <figcaption>
+    <strong>Survey detail.</strong>
+    {{ m.n_points }} positions ({{ m.position_sources|join:", "|upper }}){% if has_aoi %}; grey outline = mission area of interest{% endif %}{% if n_waypoints %}; squares = {{ n_waypoints }} planned waypoints{% endif %}.
+    {% if m.track_drawn %}Line = track in time order{% if m.track_breaks %}, broken at {{ m.track_breaks }} jump{{ m.track_breaks|pluralize }} where consecutive fixes imply more than {{ m.break_speed_ms|floatformat:0 }} m/s or are more than {{ m.break_gap_s|floatformat:0 }} s apart{% endif %}.{% else %}No track drawn: positions are MODELLED (placed within the site to match published statistics), so their order is not a route.{% endif %}
+    {% if m.colour_by %}{% with c=m.colour_by %}
+    Points coloured by {{ c.label }} ({{ c.sources|join:", "|upper }}, n={{ c.n }}), highest drawn on top.
+    <table class="legend"><tr>
+      <td>{{ c.domain.0|floatformat:c.decimals }}</td><td><img src="{{ colour_bar_src }}" alt=""></td><td>{{ c.domain.1|floatformat:c.decimals }} {{ c.unit }}</td>
+      <td class="note">ramp clipped to P5–P95; data range {{ c.data_min|floatformat:c.decimals }}–{{ c.data_max|floatformat:c.decimals }} {{ c.unit }}</td>
+    </tr></table>
+    {% endwith %}{% else %}No readings to colour by.{% endif %}
+  </figcaption>
+</figure>
+{% else %}<p class="omitted">Survey detail omitted: {{ detail.omitted }}</p>{% endif %}
+{% endwith %}
+
+{% with m=context.meta %}
+{% if context.png %}
+<figure class="context">
+  <img src="{{ context_src }}" alt="Satellite context">
+  <figcaption>
+    <strong>Context.</strong> {{ m.dataset_name }}, acquired {{ m.acquired }}, {{ m.resolution_m }} m pixels shown unsmoothed. {{ m.layer_caption }}.
+    Magenta box = survey area. Imagery is context only; no reading in this report is derived from it.
+    {% if m.attribution %}{{ m.attribution }}.{% endif %}
+  </figcaption>
+</figure>
+{% else %}<p class="omitted">Satellite context omitted: {{ context.omitted }}</p>{% endif %}
+{% endwith %}
 
 <h2>Sources cited</h2>
 {% if summary.citations %}
