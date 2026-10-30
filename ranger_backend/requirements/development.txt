@@ -24,3 +24,7 @@ pynmea2==1.19.0
 # so a manifest the Orin would refuse fails on the PC first.
 catkin_pkg==1.1.1
 # ─── RANGER V3 END: 13-ranger-msgs ───
+# ─── RANGER V3 START: 16-compliance-report ───
+# Reads generated PDFs in tests: text, and the embedded CSV attachment.
+pypdf==6.20.1
+# ─── RANGER V3 END: 16-compliance-report ───

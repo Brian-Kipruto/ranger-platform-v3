@@ -16,7 +16,6 @@ Tenancy (ADR 0006): SensorLog has no organization field. Every queryset
 scopes through robot__organization=request.user.organization. Verified
 against the live DB: 230 rows for ByteAnza via exactly this filter.
 """
-import csv
 from datetime import datetime, timedelta
 
 from django.http import HttpResponse
@@ -28,6 +27,9 @@ from rest_framework.response import Response
 from .models import AirQualityLog, ImuBaroLog, RadiationLog, SensorLog
 from .pagination import StandardResultsSetPagination
 from .serializers import DataLogSerializer
+# ─── RANGER V3 START: 16-csv-export ───
+from .exports import write_sensor_log_csv
+# ─── RANGER V3 END: 16-csv-export ───
 
 # Safeguard: cap unpaginated chart/map payloads. If a filtered set exceeds
 # this, we return the most-recent N (V2 §3.1.4 strategy).
@@ -144,27 +146,11 @@ def data_log_export_csv(request):
     response = HttpResponse(content_type="text/csv")
     response["Content-Disposition"] = 'attachment; filename="ranger_sensor_logs.csv"'
 
-    fieldnames = [
-        "id", "robot_id", "robot_id_str", "robot_name", "mission_id", "mission_name",
-        "timestamp", "latitude", "longitude",
-        # F10.2: provenance travels with every exported row. An export that
-        # loses its labels is exactly how modelled data gets mistaken for
-        # measured data downstream.
-        "source", "provenance_note",
-        # F13 (ADR-0020): each reading group ends with its own source column.
-        # `source` above is the position's; a reader of radiation_value must
-        # read radiation_source.
-        "radiation_value", "dose_rate_usvh", "radiation_source",
-        "pm25", "pm10", "air_quality_source",
-        "roll", "pitch", "yaw", "pressure_baro", "altitude_baro", "imu_source",
-    ]
-    writer = csv.DictWriter(response, fieldnames=fieldnames)
-    writer.writeheader()
-
-    # Reuse the serializer so CSV cells and JSON rows agree exactly (same
-    # null-safe reading access).
-    for row in DataLogSerializer(qs, many=True).data:
-        writer.writerow(row)
+    # ─── RANGER V3 START: 16-csv-export ───
+    # The format lives in core.exports so the compliance report's embedded
+    # CSV and this download can never drift apart.
+    write_sensor_log_csv(response, qs)
+    # ─── RANGER V3 END: 16-csv-export ───
 
     return response
 

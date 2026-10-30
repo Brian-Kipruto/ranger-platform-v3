@@ -1,0 +1,87 @@
+{# ─── RANGER V3 START: 16-report-template ─── #}
+{# 7a content only: identity, provenance, per-tier stats, citations, data. #}
+{# Map, thresholds, branding and page marking arrive in 7b. #}
+{% load tz %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Compliance report — {{ mission.name }}</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm;
+    @bottom-left { content: "R.A.N.G.E.R. compliance report · format {{ format_version }}"; font-size: 7.5pt; color: #555; }
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font-size: 7.5pt; color: #555; } }
+  body { font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 9.5pt; color: #111; }
+  h1 { font-size: 16pt; margin: 0 0 2mm; }
+  h2 { font-size: 11.5pt; margin: 7mm 0 2mm; border-bottom: 0.4pt solid #999; padding-bottom: 1mm; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 3mm; }
+  th, td { border: 0.4pt solid #bbb; padding: 1.2mm 1.6mm; text-align: left; }
+  th { background: #eee; font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .meta td { border: none; padding: 0.6mm 2mm 0.6mm 0; }
+  .meta td:first-child { color: #555; width: 38mm; }
+  .weakest { font-weight: 700; }
+  .note { color: #444; font-size: 8.5pt; }
+  .mono { font-family: "DejaVu Sans Mono", monospace; font-size: 7.5pt; word-break: break-all; }
+</style>
+</head>
+<body>
+
+<h1>Environmental survey report</h1>
+<table class="meta">
+  <tr><td>Organization</td><td>{{ organization.name }}</td></tr>
+  <tr><td>Mission</td><td>{{ mission.name }} (#{{ mission.pk }})</td></tr>
+  <tr><td>Instrument / robot</td><td>{{ robot.name }} ({{ robot.robot_id_str }})</td></tr>
+  <tr><td>Survey window</td><td>{{ summary.window_start }} → {{ summary.window_end }} (UTC, from row timestamps; positions: {{ summary.position_sources|join:", "|upper }})</td></tr>
+  {% if mission.started_at %}<tr><td>Mission started</td><td>{{ mission.started_at|utc|date:"c" }}</td></tr>{% endif %}
+  {% if mission.completed_at %}<tr><td>Mission completed</td><td>{{ mission.completed_at|utc|date:"c" }}</td></tr>{% endif %}
+  <tr><td>Rows</td><td>{{ summary.row_count }}</td></tr>
+  <tr><td>Generated</td><td>{{ generated_at|utc|date:"c" }} (UTC){% if generated_by %} by {{ generated_by.username }}{% endif %}</td></tr>
+  <tr><td>Weakest provenance</td><td class="weakest">{{ summary.weakest_source|upper }}</td></tr>
+</table>
+
+<h2>Provenance</h2>
+<p class="note">Counts by data tier. Positions are labelled by the row's source; each reading kind by its own source (ADR-0020). The weakest tier present is stated above, never the majority.</p>
+<table>
+  <tr><th>Kind</th>{% for t in tiers %}<th class="num">{{ t|upper }}</th>{% endfor %}</tr>
+  {% for kind, counts in matrix_rows %}
+  <tr><td>{{ kind }}</td>{% for c in counts %}<td class="num">{{ c }}</td>{% endfor %}</tr>
+  {% endfor %}
+</table>
+
+<h2>Statistics</h2>
+<p class="note">Computed per data tier; values from different tiers are never pooled. SD is the sample SD; percentiles use linear interpolation.</p>
+<table>
+  <tr><th>Quantity</th><th>Tier</th><th class="num">n</th><th class="num">Min</th><th class="num">Mean</th><th class="num">SD</th><th class="num">P50</th><th class="num">P95</th><th class="num">P99</th><th class="num">Max</th></tr>
+  {% for b in summary.quantities %}
+  <tr>
+    <td>{{ b.label }} ({{ b.unit }})</td><td>{{ b.source|upper }}</td>
+    {% if b.omitted %}
+      <td colspan="8" class="note">{{ b.omitted }}</td>
+    {% else %}{% with s=b.stats %}
+      <td class="num">{{ s.n }}</td>
+      <td class="num">{{ s.min|floatformat:b.decimals }}</td>
+      <td class="num">{{ s.mean|floatformat:b.decimals }}</td>
+      <td class="num">{% if s.sd is not None %}{{ s.sd|floatformat:b.decimals }}{% else %}—{% endif %}</td>
+      <td class="num">{{ s.p50|floatformat:b.decimals }}</td>
+      <td class="num">{{ s.p95|floatformat:b.decimals }}</td>
+      <td class="num">{{ s.p99|floatformat:b.decimals }}</td>
+      <td class="num">{{ s.max|floatformat:b.decimals }}</td>
+    {% endwith %}{% endif %}
+  </tr>
+  {% if b.null_count %}<tr><td colspan="10" class="note">{{ b.label }} {{ b.source|upper }}: {{ b.null_count }} reading(s) without a value, excluded.</td></tr>{% endif %}
+  {% endfor %}
+</table>
+
+<h2>Sources cited</h2>
+{% if summary.citations %}
+<ul>{% for c in summary.citations %}<li>{{ c }}</li>{% endfor %}</ul>
+{% else %}<p class="note">No provenance notes on these rows.</p>{% endif %}
+
+<h2>Data</h2>
+<p>The full dataset ({{ summary.row_count }} rows, every reading with its own source) is embedded in this PDF as the attachment <span class="mono">{{ csv_name }}</span>.</p>
+<p>SHA-256 of the attachment: <span class="mono">{{ csv_sha256 }}</span></p>
+
+</body>
+</html>
+{# ─── RANGER V3 END: 16-report-template ─── #}

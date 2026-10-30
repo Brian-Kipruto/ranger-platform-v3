@@ -51,3 +51,10 @@ rio-cogeo==7.0.2
 # rio-cogeo additionally pulls morecantile and pydantic 2. Harmless alongside
 # Django, but you should know they arrived and why.
 # ─── RANGER V3 END: satellite EO (F10.2) ───
+# ─── RANGER V3 START: 16-compliance-report ───
+# HTML/CSS -> PDF for compliance reports (F16 fork 1). Pure Python, but needs
+# pango at runtime (libpango-1.0-0 + libpangoft2-1.0-0, pango >= 1.44).
+# libharfbuzz-subset0 is optional: without it, font subsetting falls back to
+# fontTools. Install record: docs/features/16-compliance-report.md.
+weasyprint==66.0
+# ─── RANGER V3 END: 16-compliance-report ───
