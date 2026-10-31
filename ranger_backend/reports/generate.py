@@ -124,9 +124,16 @@ def render_pdf(html: str, csv_text: str, csv_name: str) -> bytes:
     # pango/cairo stack.
     from weasyprint import HTML, Attachment
 
-    # Dev settings log at DEBUG; fontTools then writes thousands of lines per
-    # report (one per font table subset). Keep warnings, drop the noise.
-    logging.getLogger("fontTools").setLevel(logging.WARNING)
+    # fontTools logs one INFO line per font table it subsets (~230 per
+    # report). setLevel(WARNING) alone does not stop it: WeasyPrint's
+    # capture_logs('fontTools') sets that logger to DEBUG for the duration of
+    # subsetting, and the records then propagate to the root console handler.
+    # Cutting propagation keeps them at WeasyPrint's capture handler (which is
+    # on the fontTools logger itself and re-logs real warnings through
+    # WeasyPrint's own logger) and away from root.
+    fonttools = logging.getLogger("fontTools")
+    fonttools.setLevel(logging.WARNING)
+    fonttools.propagate = False
 
     return HTML(string=html).write_pdf(
         attachments=[Attachment(string=csv_text, name=csv_name)]

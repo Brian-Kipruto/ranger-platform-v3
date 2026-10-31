@@ -222,7 +222,7 @@ export default function ReportsPage() {
                         ))}
                       </div>
                       {notes[r.id] ? (
-                        <div className={`mt-1 text-[9px] ${notes[r.id].tone === "ok" ? "text-ok" : "text-alert"}`}>
+                        <div className={`mt-1 text-[9px] max-w-[340px] whitespace-normal break-words leading-[1.5] ${notes[r.id].tone === "ok" ? "text-ok" : "text-alert"}`}>
                           {notes[r.id].text}
                         </div>
                       ) : null}

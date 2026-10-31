@@ -162,6 +162,17 @@ class TestStoredCsv:
         assert Report.objects.count() == 0 and pdf_files(media) == []
 
 
+class TestLogging:
+    def test_fonttools_subset_chatter_never_reaches_root(self, surveyed, media, caplog):
+        # ~230 INFO lines per report used to reach the console: WeasyPrint's
+        # capture_logs sets the fontTools logger to DEBUG while subsetting.
+        import logging
+        caplog.set_level(logging.DEBUG)
+        generate_report(surveyed)
+        leaked = [r for r in caplog.records if r.name.startswith("fontTools")]
+        assert leaked == [], f"{len(leaked)} fontTools records reached root"
+
+
 class TestAllOrNothing:
     def test_pdf_failure_leaves_nothing(self, surveyed, media, monkeypatch):
         def boom(*a, **k):
