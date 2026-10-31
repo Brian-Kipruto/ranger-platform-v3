@@ -22,6 +22,9 @@ urlpatterns = [
     # ─── RANGER V3 START: 15-mission-plan ───
     path("api/", include("missions.urls")),
     # ─── RANGER V3 END: 15-mission-plan ───
+    # ─── RANGER V3 START: 16-report-download ───
+    path("api/", include("reports.urls")),
+    # ─── RANGER V3 END: 16-report-download ───
 ]
 
 if settings.DEBUG:

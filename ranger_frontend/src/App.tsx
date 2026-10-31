@@ -9,6 +9,9 @@ import VisualizationsPage from "@/pages/VisualizationsPage"
 import SatellitePage from "@/pages/SatellitePage"
 import MissionControlPage from "@/pages/MissionControlPage"
 import StubPage from "@/pages/StubPage"
+// ─── RANGER V3 START: 16-report-download ───
+import ReportsPage from "@/pages/ReportsPage"
+// ─── RANGER V3 END: 16-report-download ───
 import ProtectedRoute from "@/components/ProtectedRoute"
 import AppShell from "@/components/console/AppShell"
 import { useAuthStore } from "@/stores/authStore"
@@ -61,7 +64,9 @@ function App() {
           <Route path="/workspace" element={<StubPage />} />
           <Route path="/fleet" element={<StubPage />} />
           <Route path="/alerts" element={<StubPage />} />
-          <Route path="/reports" element={<StubPage />} />
+          {/* ─── RANGER V3 START: 16-report-download ─── */}
+          <Route path="/reports" element={<ReportsPage />} />
+          {/* ─── RANGER V3 END: 16-report-download ─── */}
           <Route path="/ai" element={<StubPage />} />
           <Route path="/admin" element={<StubPage />} />
           <Route path="/community" element={<StubPage />} />

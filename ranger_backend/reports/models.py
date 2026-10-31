@@ -50,6 +50,12 @@ class Report(models.Model):
     # serialized to clients; downloads go through a tenancy-checked view (7c).
     pdf_path = models.CharField(max_length=500)
     pdf_sha256 = models.CharField(max_length=64)
+    # ─── RANGER V3 START: 16-report-download ───
+    # The embedded CSV, also stored beside the PDF so the console can serve
+    # it directly (PDF viewers often hide attachments). Blank for reports
+    # generated before 7c: those must be regenerated to get a CSV download.
+    csv_path = models.CharField(max_length=500, blank=True, default="")
+    # ─── RANGER V3 END: 16-report-download ───
     # The mission's full data, embedded in the PDF as a CSV attachment.
     csv_sha256 = models.CharField(max_length=64)
     row_count = models.PositiveIntegerField()
@@ -66,6 +72,11 @@ class Report(models.Model):
 
     class Meta:
         ordering = ["-generated_at"]
+        # ─── RANGER V3 START: 16-report-download ───
+        permissions = (
+            ("generate_report", "Can generate compliance reports"),
+        )
+        # ─── RANGER V3 END: 16-report-download ───
 
     def save(self, *args, **kwargs):
         if not self._state.adding:

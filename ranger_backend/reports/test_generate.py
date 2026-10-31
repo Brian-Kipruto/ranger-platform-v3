@@ -121,8 +121,8 @@ class TestGenerate:
         monkeypatch.setattr(gen, "render_pdf", lambda *a, **k: b"%PDF-1.7 same bytes")
         a = generate_report(surveyed)
         b = generate_report(surveyed)
-        assert a.pdf_path != b.pdf_path
-        assert len(pdf_files(media)) == 2
+        assert a.pdf_path != b.pdf_path and a.csv_path != b.csv_path
+        assert len(pdf_files(media)) == 4   # 2 reports x (PDF + CSV)
 
     def test_write_never_clobbers(self, media):
         dest = media / "r.pdf"
@@ -138,6 +138,28 @@ class TestGenerate:
         with pytest.raises(ValueError, match="immutable"):
             r.save()
         assert Report.objects.get(pk=r.pk).row_count == 3
+
+
+class TestStoredCsv:
+    def test_csv_beside_pdf_is_the_embedded_bytes(self, surveyed, media):
+        r = generate_report(surveyed)
+        stored = (media / r.csv_path).read_bytes()
+        _, embedded = attachment(r, media)
+        assert stored == embedded
+        assert hashlib.sha256(stored).hexdigest() == r.csv_sha256
+        assert Path(r.csv_path).stem == Path(r.pdf_path).stem
+
+    def test_csv_write_failure_leaves_nothing(self, surveyed, media, monkeypatch):
+        real = gen._write_atomic
+
+        def fail_on_csv(dest, data, suffix=".pdf"):
+            if suffix == ".csv":
+                raise OSError("disk full")
+            return real(dest, data, suffix)
+        monkeypatch.setattr(gen, "_write_atomic", fail_on_csv)
+        with pytest.raises(OSError):
+            generate_report(surveyed)
+        assert Report.objects.count() == 0 and pdf_files(media) == []
 
 
 class TestAllOrNothing:

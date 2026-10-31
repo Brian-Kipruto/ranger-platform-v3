@@ -100,7 +100,7 @@ def _csv_text(qs) -> str:
     return buf.getvalue()
 
 
-def _write_atomic(dest: Path, data: bytes) -> None:
+def _write_atomic(dest: Path, data: bytes, suffix: str = ".pdf") -> None:
     """Write `data` to `dest` atomically and NEVER over an existing file.
 
     os.link fails if `dest` exists, where os.replace would silently clobber
@@ -108,7 +108,7 @@ def _write_atomic(dest: Path, data: bytes) -> None:
     pointing at one file is exactly the failure this refuses.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=".tmp-", suffix=".pdf")
+    fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=".tmp-", suffix=suffix)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
@@ -241,7 +241,18 @@ def generate_report(mission: Mission, *, user=None) -> Report:
         f"mission-{mission.pk}-{stamp}-{pdf_sha[:8]}-{secrets.token_hex(4)}.pdf"
     )
     dest = Path(settings.MEDIA_ROOT) / rel
+    # ─── RANGER V3 START: 16-report-download ───
+    # The CSV is the exact bytes embedded in the PDF (same csv_sha256), stored
+    # beside it under the same unique stem.
+    csv_rel = rel.with_suffix(".csv")
+    csv_dest = Path(settings.MEDIA_ROOT) / csv_rel
     _write_atomic(dest, pdf)
+    try:
+        _write_atomic(csv_dest, csv_text.encode("utf-8"), suffix=".csv")
+    except BaseException:
+        dest.unlink(missing_ok=True)
+        raise
+    # ─── RANGER V3 END: 16-report-download ───
 
     try:
         with transaction.atomic():
@@ -253,6 +264,7 @@ def generate_report(mission: Mission, *, user=None) -> Report:
                 format_version=REPORT_FORMAT_VERSION,
                 pdf_path=str(rel),
                 pdf_sha256=pdf_sha,
+                csv_path=str(csv_rel),
                 csv_sha256=csv_sha,
                 row_count=summary["row_count"],
                 weakest_source=summary["weakest_source"],
@@ -260,5 +272,6 @@ def generate_report(mission: Mission, *, user=None) -> Report:
             )
     except BaseException:
         dest.unlink(missing_ok=True)
+        csv_dest.unlink(missing_ok=True)
         raise
 # ─── RANGER V3 END: 16-report-generate ───
