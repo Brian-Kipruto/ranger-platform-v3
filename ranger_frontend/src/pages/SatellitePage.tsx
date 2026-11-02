@@ -14,8 +14,10 @@
  *
  * What this screen must never do, carried forward from the mockup review:
  *   - list Planet SkySat or Maxar WorldView-3 as CONNECTED. We have neither.
- *     Provider status derives from SatelliteDataset.is_verified over the real
- *     10-dataset catalog, never a hardcoded string.
+ *     Provider status derives from the org's own scenes over the real
+ *     10-dataset catalog, never a hardcoded string. (18-polish: it used to
+ *     read SatelliteDataset.is_verified, which is GLOBAL — one tenant's
+ *     retrieval showed as RETRIEVED to every tenant.)
  *   - claim a scene count we do not have. Two scenes are on disk.
  *   - render a REGIONAL product as a per-site measurement. `scale` rides on
  *     every image for exactly this reason.
@@ -75,26 +77,23 @@ const EMPTY_PAGE = { items: [], count: 0, truncated: false }
  * products we have not retrieved from, not products we doubt. "Unverified"
  * would understate eight collections whose IDs were checked live.
  */
+// ─── RANGER V3 START: 18-polish ───
+// SatelliteDataset has no organization, so `is_verified` is global: "SOME
+// tenant pulled from this". Shown per org it over-claims (Magadi saw two
+// products RETRIEVED with zero scenes of its own). Status now derives only
+// from this org's scenes; the global RETRIEVED tier is dropped.
 function providerStatus(
-  dataset: SatelliteDataset,
+  _dataset: SatelliteDataset,
   sceneCount: number
 ): { label: string; color: string; title: string } {
-  if (dataset.is_verified && sceneCount > 0) {
+  if (sceneCount > 0) {
     return {
       label: "CONNECTED",
       color: "#4be08a",
-      title: "A scene from this product is on disk now.",
+      title: "A scene from this product is on disk for your organization.",
     }
   }
-  if (dataset.is_verified) {
-    // A scene landed at some point but none is listed now — the row was
-    // deleted, or a filter is hiding it. Worth distinguishing from never.
-    return {
-      label: "RETRIEVED",
-      color: "#36c5f0",
-      title: "A scene was retrieved from this product previously; none is listed now.",
-    }
-  }
+  // ─── RANGER V3 END: 18-polish ───
   return {
     label: "CATALOGED",
     color: "#7a828f",
@@ -425,7 +424,8 @@ export default function SatellitePage() {
 
 
   const scenesOnDisk = imageList.filter((i) => i.has_cog).length
-  const verified = datasets.filter((d) => d.is_verified).length
+  // 18-polish: this org's products with a scene on disk — not the global flag.
+  const verified = new Set(imageList.filter((i) => i.has_cog).map((i) => i.dataset)).size
   const lastPass = imageList.length
     ? imageList
         .map((i) => i.acquisition_date)
@@ -671,7 +671,10 @@ export default function SatellitePage() {
                   </div>
                 </>
               ) : (
-                "No scene selected. Run fetch_scenes to retrieve imagery."
+                // 18-polish: user copy; the command name is a dev hint only
+                scenesOnDisk === 0
+                  ? `No imagery retrieved for your organization yet.${import.meta.env.DEV ? " Dev: run fetch_scenes." : ""}`
+                  : "No scene selected."
               )}
             </div>
 

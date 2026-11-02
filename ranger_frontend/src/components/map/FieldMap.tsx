@@ -838,8 +838,10 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
           className="w-full flex items-center justify-center text-center font-mono text-[11px] text-fg-dim p-6"
           style={{ height }}
         >
-          MAP UNAVAILABLE · VITE_MAPTILER_KEY NOT SET IN ranger_frontend/.env ·
-          ADD IT AND RESTART THE DEV SERVER
+          {/* 18-polish: the env-var instruction is a dev hint only */}
+          {import.meta.env.DEV
+            ? "MAP UNAVAILABLE · VITE_MAPTILER_KEY NOT SET IN ranger_frontend/.env · ADD IT AND RESTART THE DEV SERVER"
+            : "MAP UNAVAILABLE · BASEMAP NOT CONFIGURED"}
         </div>
       </div>
     )

@@ -162,6 +162,12 @@ export default function DataExplorerPage() {
   // the summary tiles (refs don't trigger re-render).
   const fieldMap = useRef<FieldMapHandle | null>(null)
   const [trackFc, setTrackFc] = useState<import("@/types/dataLog.types").MapFeatureCollection | null>(null)
+  // ─── RANGER V3 START: 18-polish ───
+  // Side fetches used to fail silently: a failed map read still printed
+  // "MAP SHOWS FULL TRACK", and failed filter options left empty dropdowns.
+  const [mapState, setMapState] = useState<"loading" | "ok" | "failed">("loading")
+  const [optionsFailed, setOptionsFailed] = useState(false)
+  // ─── RANGER V3 END: 18-polish ───
   const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
@@ -179,7 +185,9 @@ export default function DataExplorerPage() {
           setMissions(m)
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setOptionsFailed(true) // 18-polish
+      })
     return () => {
       cancelled = true
     }
@@ -207,14 +215,18 @@ export default function DataExplorerPage() {
 
   useEffect(() => {
     let cancelled = false
+    setMapState("loading") // 18-polish
     getMapData(appliedFilters)
       .then((fc) => {
         if (cancelled) return
         // FieldMap consumes trackFc via props (setData + fitBounds happen
         // inside the component). The page keeps trackFc only for the summary.
         setTrackFc(fc)
+        setMapState("ok")
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setMapState("failed") // 18-polish
+      })
     return () => {
       cancelled = true
     }
@@ -405,10 +417,16 @@ export default function DataExplorerPage() {
           <span className="text-fg-dim">
             {totalCount} RECORD{totalCount === 1 ? "" : "S"}
             {isFiltered ? " · FILTERED" : ""}
-            {trackFc?.provenance?.truncated
-              ? ` · MAP SHOWS ${trackFc.provenance.returned.toLocaleString()} OF ` +
-                `${trackFc.provenance.total.toLocaleString()} · TABLE PAGINATED`
-              : " · MAP SHOWS FULL TRACK · TABLE PAGINATED"}
+            {/* 18-polish: the map clause says what the map actually has */}
+            {mapState === "failed"
+              ? " · MAP FAILED TO LOAD · TABLE PAGINATED"
+              : mapState === "loading"
+                ? " · MAP LOADING… · TABLE PAGINATED"
+                : trackFc?.provenance?.truncated
+                  ? ` · MAP SHOWS ${trackFc.provenance.returned.toLocaleString()} OF ` +
+                    `${trackFc.provenance.total.toLocaleString()} · TABLE PAGINATED`
+                  : " · MAP SHOWS FULL TRACK · TABLE PAGINATED"}
+            {optionsFailed ? " · FILTER OPTIONS FAILED TO LOAD" : ""}
           </span>
         )}
       </div>
