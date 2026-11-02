@@ -126,7 +126,7 @@ export function SensorStreams({ rows, loading = false }: { rows: DataLog[]; load
                 ) : null}
               </svg>
               <div className="font-mono text-[8.5px] text-fg-faint mt-[3px]">
-                {values.length > 0 ? s.note : loading ? "LOADING…" : "NO DATA IN THIS ORGANIZATION"}
+                {values.length > 0 ? s.note : loading ? "LOADING…" : "NO READINGS IN THIS ORGANIZATION"}
               </div>
             </div>
           )
