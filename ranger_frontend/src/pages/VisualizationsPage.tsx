@@ -61,6 +61,11 @@ function computeStat(values: (number | null)[]): Stat | null {
   return { min: Math.min(...nums), max: Math.max(...nums), avg: sum / nums.length, count: nums.length }
 }
 
+// 18-polish: date ticks for multi-day spans (see xAxis in the page).
+const fmtDateTick = (ms: number): string => {
+  const d = new Date(ms)
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString([], { day: "2-digit", month: "short" })
+}
 const fmtTick = (ms: number): string => {
   const d = new Date(ms)
   return Number.isNaN(d.getTime())
@@ -243,7 +248,11 @@ export default function VisualizationsPage() {
 
   // ─── RANGER V3 START: 18-polish ───
   const capped = total !== null && total > data.length
-  const margin = { top: 8, right: 12, bottom: 4, left: -8 }
+  const margin = { top: 8, right: 24, bottom: 4, left: -8 }
+  // A clock-only tick repeats across days and reads as time running
+  // backwards (11:37 then 11:21). Past ~1.5 days of span, label by date.
+  const spanMs = data.length > 1 ? data[data.length - 1].timestamp_ms - data[0].timestamp_ms : 0
+  const xAxis = { ...X_AXIS_PROPS, tickFormatter: spanMs > 36 * 3600 * 1000 ? fmtDateTick : fmtTick }
 
   return (
     <div className="p-[18px]">
@@ -321,7 +330,7 @@ export default function VisualizationsPage() {
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={data} margin={margin}>
                 <CartesianGrid stroke={T.grid} strokeDasharray="3 3" />
-                <XAxis {...X_AXIS_PROPS} />
+                <XAxis {...xAxis} />
                 <YAxis tick={TICK} stroke={T.grid} />
                 <Tooltip {...TOOLTIP_PROPS} labelFormatter={(l) => fmtTooltipLabel(l as number)} />
                 <Legend {...LEGEND_PROPS} />
@@ -353,7 +362,7 @@ export default function VisualizationsPage() {
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={data} margin={margin}>
                 <CartesianGrid stroke={T.grid} strokeDasharray="3 3" />
-                <XAxis {...X_AXIS_PROPS} />
+                <XAxis {...xAxis} />
                 <YAxis tick={TICK} stroke={T.grid} />
                 <Tooltip {...TOOLTIP_PROPS} labelFormatter={(l) => fmtTooltipLabel(l as number)} />
                 <Legend {...LEGEND_PROPS} />
@@ -386,7 +395,7 @@ export default function VisualizationsPage() {
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={data} margin={margin}>
                 <CartesianGrid stroke={T.grid} strokeDasharray="3 3" />
-                <XAxis {...X_AXIS_PROPS} />
+                <XAxis {...xAxis} />
                 <YAxis tick={TICK} stroke={T.grid} />
                 <Tooltip {...TOOLTIP_PROPS} labelFormatter={(l) => fmtTooltipLabel(l as number)} />
                 <Legend {...LEGEND_PROPS} />
@@ -415,7 +424,7 @@ export default function VisualizationsPage() {
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={data} margin={margin}>
                 <CartesianGrid stroke={T.grid} strokeDasharray="3 3" />
-                <XAxis {...X_AXIS_PROPS} />
+                <XAxis {...xAxis} />
                 <YAxis yAxisId="left" tick={TICK} stroke={T.grid} />
                 <YAxis yAxisId="right" orientation="right" tick={TICK} stroke={T.grid} />
                 <Tooltip {...TOOLTIP_PROPS} labelFormatter={(l) => fmtTooltipLabel(l as number)} />
