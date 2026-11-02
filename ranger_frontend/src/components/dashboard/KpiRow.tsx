@@ -1,13 +1,24 @@
 // ─── RANGER V3 START: dashboard KpiRow ───
 /**
- * KpiRow — the dashboard's six-tile KPI strip (mockup lines ~230-243).
- * Built entirely from the F06 MetricTile primitive. Tiles marked `demo` get a
- * subtle muted treatment (a tiny DEMO tag) so placeholder data is visually
- * honest next to the real ones.
+ * KpiRow — the dashboard's KPI strip, built from the F06 MetricTile primitive.
+ *
+ * 18-polish: every tile is real. The F07 row had six tiles, five of them DEMO
+ * (fleet 4, missions 2, alerts 3, 128 km², 99.2 % SLA). The ones with a real
+ * source now read it (DashboardPage); the ones without one were removed rather
+ * than labelled — a DEMO tag beside a confident number is still a number on
+ * screen. So the `demo` flag and its tag are gone, and the spec type lives here
+ * now that dashboardPlaceholders.ts is deleted.
  */
 import { MetricTile } from "@/components/console/MetricTile"
-import { MonoLabel } from "@/components/console/MonoLabel"
-import type { KpiSpec } from "@/config/dashboardPlaceholders"
+
+export interface KpiSpec {
+  label: string
+  value: string
+  unit: string
+  delta: string
+  deltaTone: "ok" | "warn" | "alert" | "dim"
+  bar: string // left-bar color (hex or token-ish)
+}
 
 const TONE_COLOR: Record<KpiSpec["deltaTone"], string> = {
   ok: "var(--color-ok)",
@@ -18,7 +29,7 @@ const TONE_COLOR: Record<KpiSpec["deltaTone"], string> = {
 
 export function KpiRow({ kpis }: { kpis: KpiSpec[] }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+    <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
       {kpis.map((k) => (
         <MetricTile
           key={k.label}
@@ -26,16 +37,7 @@ export function KpiRow({ kpis }: { kpis: KpiSpec[] }) {
           value={k.value}
           unit={k.unit}
           bar={k.bar}
-          sub={
-            <span className="flex items-center justify-between gap-2">
-              <span style={{ color: TONE_COLOR[k.deltaTone] }}>{k.delta}</span>
-              {k.demo ? (
-                <MonoLabel size="xs" tone="faint" tracking="0.1em" className="opacity-60">
-                  DEMO
-                </MonoLabel>
-              ) : null}
-            </span>
-          }
+          sub={<span style={{ color: TONE_COLOR[k.deltaTone] }}>{k.delta}</span>}
         />
       ))}
     </div>

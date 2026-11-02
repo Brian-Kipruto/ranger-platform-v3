@@ -9,11 +9,20 @@ import { api } from "./client"
 import type { Mission, MissionWrite } from "../types/mission.types"
 import type { Paginated } from "../types/satellite.types"
 
-/** The org's missions for one robot, newest first. One page of 1000 (DRF's
- *  cap) — a robot with more planned missions than that is not tier 1. */
-export async function listMissions(robotIdStr: string): Promise<Mission[]> {
+// ─── RANGER V3 START: 18-polish ───
+/** Every mission in the caller's org, newest first. One page of 1000 (DRF's
+ *  cap) — an org with more planned missions than that is not tier 1. The
+ *  dashboard needs all robots' missions at once (running count, fleet rows),
+ *  so this is the one fetch; listMissions filters it. */
+export async function listOrgMissions(): Promise<Mission[]> {
   const { data } = await api.get<Paginated<Mission>>("/missions/", { params: { limit: 1000 } })
-  return data.results.filter((m) => m.robot_id_str === robotIdStr)
+  return data.results
+}
+// ─── RANGER V3 END: 18-polish ───
+
+/** The org's missions for one robot, newest first. */
+export async function listMissions(robotIdStr: string): Promise<Mission[]> {
+  return (await listOrgMissions()).filter((m) => m.robot_id_str === robotIdStr)
 }
 
 export async function createMission(body: MissionWrite): Promise<Mission> {

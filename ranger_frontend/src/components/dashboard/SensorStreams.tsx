@@ -72,7 +72,8 @@ function buildStream(values: number[], threshold: number) {
   return { line, area, threshY, last: values[values.length - 1] }
 }
 
-export function SensorStreams({ rows }: { rows: DataLog[] }) {
+// 18-polish: `loading` keeps "no data" from showing before the fetch settles.
+export function SensorStreams({ rows, loading = false }: { rows: DataLog[]; loading?: boolean }) {
   // Cap to a recent window so the sparkline reads cleanly.
   const windowRows = useMemo(() => rows.slice(-40), [rows])
 
@@ -81,7 +82,8 @@ export function SensorStreams({ rows }: { rows: DataLog[] }) {
       title="SENSOR STREAMS"
       right={<MonoLabel size="xs" tone="dim">FROM DB</MonoLabel>}
     >
-      <div className="p-[13px] flex flex-col gap-[14px]">
+      {/* 18-polish: full-width row now — the two streams sit side by side */}
+      <div className="p-[13px] grid grid-cols-1 lg:grid-cols-2 gap-x-[22px] gap-y-[14px]">
         {STREAMS.map((s) => {
           const values = windowRows
             .map(s.pick)
@@ -124,7 +126,7 @@ export function SensorStreams({ rows }: { rows: DataLog[] }) {
                 ) : null}
               </svg>
               <div className="font-mono text-[8.5px] text-fg-faint mt-[3px]">
-                {values.length > 0 ? s.note : "NO DATA · FETCH IN DATA EXPLORER FIRST"}
+                {values.length > 0 ? s.note : loading ? "LOADING…" : "NO DATA IN THIS ORGANIZATION"}
               </div>
             </div>
           )

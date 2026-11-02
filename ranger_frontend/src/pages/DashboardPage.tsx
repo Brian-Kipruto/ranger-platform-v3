@@ -4,41 +4,43 @@
  * mockup's isDashboard layout (mockup ~227-410). Replaces the F02 placeholder.
  *
  * Layout:
- *   - KPI row        : 6 MetricTiles (5 DEMO + 1 real record count)
+ *   - KPI row        : 4 MetricTiles, all real
  *   - Main grid      : FieldMap (left, with blips + readout + expand) +
- *                      right column (LIVE TELEMETRY + FLEET mini)
- *   - Bottom row     : ACTIVE ALERTS · SENSOR STREAMS · COMMS LAYERS  (CP5)
+ *                      right column (LIVE TELEMETRY + FLEET mini + DRIVE)
+ *   - Bottom row     : SENSOR STREAMS, full width
  *
- * REAL vs DEMO (see dashboardPlaceholders.ts):
- *   - Robot ids/names    : REAL, derived from /api/chart-data/ (F05 pattern)
- *   - "DATA INGESTED" KPI : REAL count of the org's sensor records
- *   - Everything else now : DEMO, centralized + clearly marked, swap-ready
+ * 18-polish — nothing on this page is DEMO any more:
+ *   - Robots   : the union of robots in the org's stored data, its missions,
+ *                and live pushes. There is no /api/robots/; a registered
+ *                robot that has never logged, planned or pushed is not shown.
+ *   - KPIs     : robots, reporting now (live feed), missions running
+ *                (/api/missions/), records ingested (the paginated `count`,
+ *                not the length of the 5,000-row-capped chart pull).
+ *   - Fleet    : status from the live feed only; mission = running mission.
+ *   - Map      : a blip only where a live position exists. The F07 DEMO
+ *                Nairobi coordinates and the hardcoded HDG 142° · 1.4 m/s
+ *                readout are gone (the live feed carries neither).
+ *   - Alerts / Comms panels removed: no alerts engine, no MQTT, no LoRa.
  *
  * The accent is set by AppShell (org theme_color → --accent). FieldMap needs a
  * hex, so we resolve it the same way the Data Explorer does.
  */
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useAuthStore } from "@/stores/authStore"
-import { getChartData, getRobotOptions } from "@/api/dataLogs"
+import { getChartData, getDataLogs } from "@/api/dataLogs"
+import { listOrgMissions } from "@/api/missions" // 18-polish
+import type { Mission } from "@/types/mission.types" // 18-polish
 import {
   FieldMap,
   type FieldMapBlip,
   type FieldMapHandle,
   type FieldMapReadout,
 } from "@/components/map/FieldMap"
-import { KpiRow } from "@/components/dashboard/KpiRow"
+import { KpiRow, type KpiSpec } from "@/components/dashboard/KpiRow"
 import { LiveTelemetry } from "@/components/dashboard/LiveTelemetry"
 import { FleetMini, type FleetRow } from "@/components/dashboard/FleetMini"
-import { ActiveAlerts } from "@/components/dashboard/ActiveAlerts"
 import { SensorStreams } from "@/components/dashboard/SensorStreams"
-import { CommsLayers } from "@/components/dashboard/CommsLayers"
 import type { DataLog } from "@/types/dataLog.types"
-import {
-  KPI_PLACEHOLDERS,
-  FLEET_STATUS_DEMO,
-  FLEET_STATUS_DEFAULT,
-  BLIP_COORDS_DEMO,
-} from "@/config/dashboardPlaceholders"
 // ─── RANGER V3 START: 09-live-console ───
 import { LiveFeed } from "@/components/dashboard/LiveFeed"
 import { DrivePanel } from "@/components/dashboard/DrivePanel" // 14-teleop
@@ -94,48 +96,62 @@ export default function DashboardPage() {
   useEffect(() => () => useLiveStore.getState().reset(), [userId])
   // ─── RANGER V3 END: 09-live-console ───
 
-  // Real robots (id + name) derived from the chart-data endpoint, F05-style.
-  const [fleet, setFleet] = useState<FleetRow[]>([])
-  const [recordCount, setRecordCount] = useState<number | null>(null)
+  // ─── RANGER V3 START: 18-polish ───
+  // One pass over the three sources the page needs. Any failure shows an
+  // error banner — never an empty dashboard that reads as "no robots".
   const [chartRows, setChartRows] = useState<DataLog[]>([])
-  const [selectedId, setSelectedId] = useState<string>("")
+  const [recordCount, setRecordCount] = useState<number | null>(null)
+  const [missions, setMissions] = useState<Mission[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  // The picked robot, else the first one. Derived, not synced by an effect.
+  const [pickedId, setSelectedId] = useState<string>("")
 
   useEffect(() => {
     let cancelled = false
-    // robot options give real id/name; chart-data length gives a real count.
-    Promise.all([getRobotOptions(), getChartData({})])
-      .then(([robots, rows]) => {
+    Promise.all([getChartData({}), getDataLogs({}, 1, 1), listOrgMissions()])
+      .then(([rows, page, ms]) => {
         if (cancelled) return
-        setRecordCount(rows.length)
         setChartRows(rows)
-        const built: FleetRow[] = robots.map((r) => {
-          const demo = FLEET_STATUS_DEMO[r.robot_id_str] ?? FLEET_STATUS_DEFAULT
-          return {
-            id: r.robot_id_str,
-            name: r.name,
-            mission: demo.mission,
-            battery: demo.battery,
-            signal: demo.signal,
-            status: demo.status,
-          }
-        })
-        setFleet(built)
-        if (built.length > 0) setSelectedId((cur) => cur || built[0].id)
+        setRecordCount(page.count)
+        setMissions(ms)
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) {
+          setLoadError("Could not load this organization's data. Check the backend is running, then reload.")
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
     return () => {
       cancelled = true
     }
   }, [])
 
-  // KPI row: override the "records" tile (index 3) with the real count.
-  const kpis = useMemo(() => {
-    return KPI_PLACEHOLDERS.map((k) =>
-      k.label === "DATA INGESTED"
-        ? { ...k, value: recordCount === null ? "…" : recordCount.toLocaleString() }
-        : k
-    )
-  }, [recordCount])
+  // Robots = stored data ∪ missions ∪ live pushes, in that order. Names come
+  // from stored data; a robot known only from a mission or a push shows its id.
+  const liveIds = Object.keys(positions).sort().join(",")
+  const fleet: FleetRow[] = useMemo(() => {
+    const names = new Map<string, string>()
+    for (const r of chartRows) if (!names.has(r.robot_id_str)) names.set(r.robot_id_str, r.robot_name)
+    for (const m of missions) if (!names.has(m.robot_id_str)) names.set(m.robot_id_str, m.robot_id_str)
+    for (const id of liveIds ? liveIds.split(",") : []) if (!names.has(id)) names.set(id, id)
+    return Array.from(names, ([id, name]) => {
+      const running = missions.find(
+        (m) => m.robot_id_str === id && (m.status === "IN_PROGRESS" || m.status === "PAUSED")
+      )
+      return {
+        id,
+        name,
+        mission: running ? (running.status === "PAUSED" ? `${running.name} (paused)` : running.name) : "—",
+        signal: "NO FIX",
+        status: "offline" as const,
+      }
+    })
+  }, [chartRows, missions, liveIds])
+  const selectedId = pickedId || fleet[0]?.id || ""
+  // ─── RANGER V3 END: 18-polish ───
 
   // ─── RANGER V3 START: 09-live-console ───
   // Staleness only changes on a 5 s boundary; keying on it (not on `now`)
@@ -144,8 +160,7 @@ export default function DashboardPage() {
     .map((r) => (positions[r.id] && isStale(positions[r.id], now) ? "1" : "0"))
     .join("")
 
-  // Live push overrides DEMO status/signal for robots that have reported.
-  // Robots with no live position keep the DEMO overlay (swap contract).
+  // Live push sets status/signal; a robot with no push stays OFFLINE · NO FIX.
   const liveFleet: FleetRow[] = useMemo(
     () =>
       fleet.map((r, i) => {
@@ -155,10 +170,10 @@ export default function DashboardPage() {
     [fleet, positions, staleKey]
   )
 
-  /** Live position if one has arrived, else DEMO coords. */
+  /** Live position if one has arrived; no fix, no coordinates (18-polish). */
   const coordsFor = (id: string): { lat: number; lng: number } | undefined => {
     const p = positions[id]
-    return p ? { lat: p.lat, lng: p.lon } : BLIP_COORDS_DEMO[id]
+    return p ? { lat: p.lat, lng: p.lon } : undefined
   }
 
   // Header tag says what the map is actually showing, not what it hopes to.
@@ -169,7 +184,7 @@ export default function DashboardPage() {
     ? "· LIVE"
     : freshSources.length > 0
       ? "· SIM"
-      : "· DEMO"
+      : "· NO LIVE FIX" // 18-polish: was "· DEMO" over invented blips
   // ─── RANGER V3 END: 09-live-console ───
 
   // ─── RANGER V3 START: 13-console-readings ───
@@ -183,15 +198,56 @@ export default function DashboardPage() {
   )
   // ─── RANGER V3 END: 13-console-readings ───
 
-  // Map blips from the fleet (live position when pushed, DEMO coords otherwise).
+  // ─── RANGER V3 START: 18-polish ───
+  const freshLive = freshSources.filter((src) => src === "live").length
+  const freshOther = freshSources.length - freshLive
+  const running = missions.filter((m) => m.status === "IN_PROGRESS").length
+  const pending = missions.filter((m) => m.status === "PENDING").length
+  const dash = loading || loadError ? "—" : null
+  const kpis: KpiSpec[] = [
+    {
+      label: "ROBOTS",
+      value: dash ?? String(fleet.length),
+      unit: "units",
+      delta: "with data, missions or a live fix",
+      deltaTone: "dim",
+      bar: "var(--accent)",
+    },
+    {
+      label: "REPORTING NOW",
+      value: String(freshSources.length),
+      unit: "units",
+      delta: freshSources.length > 0 ? `${freshLive} live · ${freshOther} sim` : "no live fix",
+      deltaTone: freshLive > 0 ? "ok" : "dim",
+      bar: "#4be08a",
+    },
+    {
+      label: "MISSIONS RUNNING",
+      value: dash ?? String(running),
+      unit: "running",
+      delta: dash ? "" : `${pending} pending`,
+      deltaTone: "dim",
+      bar: "#f5a623",
+    },
+    {
+      label: "DATA INGESTED",
+      value: dash ?? (recordCount ?? 0).toLocaleString(),
+      unit: "records",
+      delta: "this org · all tiers",
+      deltaTone: "dim",
+      bar: "#36c5f0",
+    },
+  ]
+  // ─── RANGER V3 END: 18-polish ───
+
+  // Map blips: live positions only (18-polish).
   const blips: FieldMapBlip[] = useMemo(
     () =>
       liveFleet
         .map((r) => {
           const p = positions[r.id]
-          const c = p ? { lat: p.lat, lng: p.lon } : BLIP_COORDS_DEMO[r.id]
-          if (!c) return null
-          return { id: r.id, lng: c.lng, lat: c.lat, status: r.status }
+          if (!p) return null
+          return { id: r.id, lng: p.lon, lat: p.lat, status: r.status }
         })
         .filter((b): b is FieldMapBlip => b !== null),
     [liveFleet, positions]
@@ -226,8 +282,7 @@ export default function DashboardPage() {
         coords: selectedCoords
           ? `${selectedCoords.lat.toFixed(4)}°, ${selectedCoords.lng.toFixed(4)}°`
           : undefined,
-        headingDeg: 142,
-        speedMs: 1.4,
+        // 18-polish: hardcoded HDG 142° · 1.4 m/s removed — no source.
       }
     : null
 
@@ -237,6 +292,17 @@ export default function DashboardPage() {
       {/* Keyed by token: a refreshed token remounts the feed with a fresh socket. */}
       {accessToken ? <LiveFeed key={accessToken} token={accessToken} /> : null}
       {/* ─── RANGER V3 END: 09-live-console ─── */}
+      {/* ─── RANGER V3 START: 18-polish ─── */}
+      {loadError ? (
+        <div
+          role="alert"
+          className="mb-[14px] px-3 py-2.5 rounded border border-alert/40 font-mono text-[11px] text-alert"
+          style={{ background: "color-mix(in srgb, var(--color-alert) 10%, transparent)" }}
+        >
+          {loadError}
+        </div>
+      ) : null}
+      {/* ─── RANGER V3 END: 18-polish ─── */}
       {/* KPI ROW */}
       <KpiRow kpis={kpis} />
 
@@ -263,7 +329,7 @@ export default function DashboardPage() {
             selectedId={selectedId || "—"}
             telemetry={telemetry /* 13-console-readings */}
           />
-          <FleetMini rows={liveFleet} selectedId={selectedId} onSelect={setSelectedId} />
+          <FleetMini rows={liveFleet} selectedId={selectedId} onSelect={setSelectedId} loading={loading} />
           {/* ─── RANGER V3 START: 14-teleop ─── */}
           {/* Keyed by robot: switching robots tears the drive session down. */}
           {canDrive && selectedId ? <DrivePanel key={selectedId} robotId={selectedId} /> : null}
@@ -271,12 +337,10 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* BOTTOM ROW — ACTIVE ALERTS · SENSOR STREAMS · COMMS LAYERS */}
+      {/* BOTTOM ROW — SENSOR STREAMS (18-polish: Alerts and Comms removed) */}
       {/* ─── RANGER V3 START: dashboard bottom row ─── */}
-      <div className="mt-[14px] grid grid-cols-1 lg:grid-cols-[1.1fr_1fr_1fr] gap-[14px] items-start">
-        <ActiveAlerts />
-        <SensorStreams rows={chartRows} />
-        <CommsLayers />
+      <div className="mt-[14px]">
+        <SensorStreams rows={chartRows} loading={loading} />
       </div>
       {/* ─── RANGER V3 END: dashboard bottom row ─── */}
     </div>
