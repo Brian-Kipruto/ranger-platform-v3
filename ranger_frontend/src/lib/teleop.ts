@@ -36,13 +36,14 @@ export const CLOSE_TEXT: Record<number, string> = {
   4401: "Session expired. Sign in again, then arm.",
   4403: "Your account has no organization.",
   4404: "That robot is not in your organization.",
-  4405: "You do not have drive permission (Drivers group).",
+  4405: "This account is not authorized to drive.", // 18-polish: no group name
   4409: "Someone else is driving this robot.",
   1006: "Server unreachable.",
 }
 
 export const ERROR_TEXT: Record<string, string> = {
-  relay_offline: "Relay not running: start teleop_relay.",
+  // 18-polish: the command name is a dev hint; the user sees the state.
+  relay_offline: import.meta.env.DEV ? "Relay not running: start teleop_relay." : "Drive link to the robot is offline.",
   rate: "Sending too fast: commands dropped.",
   value: "Command rejected (out of range).",
   bad_message: "Command rejected (malformed).",

@@ -32,7 +32,8 @@ export function MissionPlanPanel({ plan, robotId }: { plan: Plan; robotId: strin
       <div className="p-[13px] flex flex-col gap-[11px]">
         {!robotId ? (
           <p className="font-mono text-[11px] text-fg-faint leading-[1.7]">
-            No robot is paired with this console. Set VITE_VIDEO_ROBOT_ID.
+            {/* 18-polish: env-var hint only in dev builds */}
+            No robot is paired with this console.{import.meta.env.DEV ? " Dev: set VITE_VIDEO_ROBOT_ID." : ""}
           </p>
         ) : (
           <>

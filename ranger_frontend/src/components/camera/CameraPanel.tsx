@@ -10,6 +10,11 @@
  * WebSocket sensor path. Great on LAN; degrades over LTE (drop fps/res).
  *
  * Config, the robot pairing and the frozen-frame watchdog live in lib/video.ts.
+ *
+ * 18-polish: EXPAND → fullscreen, the same way FieldMap does it — a CSS class
+ * on the same Panel, never a portal or a second <img>. The MJPEG element is
+ * not remounted by expanding, so the stream is not reopened and the Orin is
+ * not asked to encode twice.
  */
 import { useEffect, useRef, useState } from "react"
 import { Panel } from "@/components/console/Panel"
@@ -47,13 +52,18 @@ export function CameraPanel({ robotLabel }: CameraPanelProps) {
         right={<MonoLabel size="xs" tone="alert">● NOT CONFIGURED</MonoLabel>}
       >
         <div className="relative bg-black aspect-[4/3] flex flex-col items-center justify-center gap-3 p-6">
-          <MonoLabel size="md" tone="soft" tracking="0.13em">VIDEO NOT CONFIGURED</MonoLabel>
-          {VIDEO_CONFIG.problems.map((p) => (
-            <p key={p} className="font-mono text-[11px] text-alert text-center">{p}</p>
-          ))}
-          <p className="font-mono text-[11px] text-fg-faint max-w-[380px] text-center leading-[1.7]">
-            Set both in ranger_frontend/.env and restart the dev server.
-          </p>
+          <MonoLabel size="md" tone="soft" tracking="0.13em">NO CAMERA PAIRED</MonoLabel>
+          {/* 18-polish: config diagnostics only in dev builds */}
+          {import.meta.env.DEV ? (
+            <>
+              {VIDEO_CONFIG.problems.map((p) => (
+                <p key={p} className="font-mono text-[11px] text-alert text-center">{p}</p>
+              ))}
+              <p className="font-mono text-[11px] text-fg-faint max-w-[380px] text-center leading-[1.7]">
+                Dev: set both in ranger_frontend/.env and restart the dev server.
+              </p>
+            </>
+          ) : null}
         </div>
       </Panel>
     )
@@ -151,13 +161,27 @@ function LiveCamera({ robotLabel, baseUrl, streamUrls, snapshotUrl }: LiveCamera
   const [erroredKey, setErroredKey] = useState<string | null>(null)
   const imgFailed = erroredKey === imgKey
   const status = STATUS[state]
+  // ─── RANGER V3 START: 18-polish ───
+  const [expanded, setExpanded] = useState(false)
+  // ─── RANGER V3 END: 18-polish ───
 
   return (
     <Panel
+      // 18-polish: expanded = fixed fullscreen; the body flexes to fill it
+      className={expanded ? "fixed inset-0 z-50 rounded-none flex flex-col" : undefined}
+      bodyClassName={expanded ? "flex-1 min-h-0" : undefined}
       title={`${robotLabel} · COLOR`}
       right={
         <div className="flex items-center gap-3">
           <ModeToggle mode={mode} onChange={setMode} />
+          {/* 18-polish: same control and styling as FieldMap's EXPAND */}
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            className="cursor-pointer font-mono text-[9px] rounded px-2 py-[3px] border border-border-strong-2 text-fg-muted hover:text-fg-soft hover:border-[#39414f] transition-colors"
+          >
+            {expanded ? "COLLAPSE ✕" : "EXPAND →"}
+          </button>
           <MonoLabel size="xs" tone={status.tone}>
             {status.text}
             {state === "live" ? ` · ${profile.toUpperCase()}` : ""}
@@ -167,7 +191,8 @@ function LiveCamera({ robotLabel, baseUrl, streamUrls, snapshotUrl }: LiveCamera
     >
       <div
         className={
-          "relative bg-black aspect-[4/3] flex items-center justify-center " +
+          "relative bg-black flex items-center justify-center " +
+          (expanded ? "h-full " : "aspect-[4/3] ") + // 18-polish
           (state === "stale" ? "outline outline-2 -outline-offset-2 outline-alert" : "")
         }
       >
@@ -187,7 +212,8 @@ function LiveCamera({ robotLabel, baseUrl, streamUrls, snapshotUrl }: LiveCamera
             <p className="font-mono text-[11px] text-fg-soft text-center leading-[1.7]">
               Do not drive on this image.
               <br />
-              No new frame since {fmtTime(lastOkAt)} · retrying {baseUrl}
+              {/* 18-polish: the stream address is shown in dev builds only */}
+              No new frame since {fmtTime(lastOkAt)} · retrying{import.meta.env.DEV ? ` ${baseUrl}` : ""}
             </p>
             <button
               onClick={reconnect}
@@ -200,7 +226,7 @@ function LiveCamera({ robotLabel, baseUrl, streamUrls, snapshotUrl }: LiveCamera
 
         {imgFailed && state !== "stale" ? (
           <div className="flex flex-col items-center gap-3">
-            <MonoLabel size="sm" tone="soft" tracking="0.13em">NO STREAM FROM {baseUrl}</MonoLabel>
+            <MonoLabel size="sm" tone="soft" tracking="0.13em">NO STREAM{import.meta.env.DEV ? ` FROM ${baseUrl}` : ""}</MonoLabel>
             <button
               onClick={reconnect}
               className="font-mono text-[10px] px-3 py-1 rounded border border-border text-fg-soft hover:text-fg"

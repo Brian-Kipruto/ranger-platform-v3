@@ -95,9 +95,10 @@ export default function MissionControlPage() {
 
   let drive
   if (!robotId) {
-    drive = <DriveNote title="DRIVE UNAVAILABLE" lines={["No robot is paired with the video feed.", "Set VITE_VIDEO_ROBOT_ID."]} />
+    // 18-polish: user copy always; the env-var / command hint only in dev builds.
+    drive = <DriveNote title="DRIVE UNAVAILABLE" lines={["No robot is paired with this console.", ...(import.meta.env.DEV ? ["Dev: set VITE_VIDEO_ROBOT_ID."] : [])]} />
   } else if (!canDrive) {
-    drive = <DriveNote title="NO DRIVE PERMISSION" lines={["Needs core.drive_robot (Drivers group).", "Ask an admin to run grant_drive."]} />
+    drive = <DriveNote title="NO DRIVE PERMISSION" lines={["This account is not authorized to drive.", ...(import.meta.env.DEV ? ["Dev: needs core.drive_robot (grant_drive)."] : [])]} />
   } else {
     // keyed by robot: a config change tears the drive session down
     drive = <DrivePanel key={robotId} robotId={robotId} />
@@ -132,12 +133,7 @@ export default function MissionControlPage() {
 
   return (
     <div className="p-[18px] flex flex-col gap-[18px]">
-      <div className="flex items-center justify-between">
-        <MonoLabel size="md" tone="soft" tracking="0.13em">
-          MSN · MISSION CONTROL
-        </MonoLabel>
-      </div>
-
+      {/* 18-polish: the "MSN · MISSION CONTROL" label repeated the TopBar title; removed */}
       {/* ─── RANGER V3 START: 15-mission-plan ─── */}
       {/* 15-mission-live: this page owns its own socket (the dashboard's unmounts with it) */}
       {accessToken ? <LiveFeed key={accessToken} token={accessToken} /> : null}
