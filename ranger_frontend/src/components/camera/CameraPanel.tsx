@@ -163,6 +163,14 @@ function LiveCamera({ robotLabel, baseUrl, streamUrls, snapshotUrl }: LiveCamera
   const status = STATUS[state]
   // ─── RANGER V3 START: 18-polish ───
   const [expanded, setExpanded] = useState(false)
+  useEffect(() => {
+    if (!expanded) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpanded(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [expanded])
   // ─── RANGER V3 END: 18-polish ───
 
   return (
@@ -180,7 +188,7 @@ function LiveCamera({ robotLabel, baseUrl, streamUrls, snapshotUrl }: LiveCamera
             onClick={() => setExpanded((e) => !e)}
             className="cursor-pointer font-mono text-[9px] rounded px-2 py-[3px] border border-border-strong-2 text-fg-muted hover:text-fg-soft hover:border-[#39414f] transition-colors"
           >
-            {expanded ? "COLLAPSE ✕" : "EXPAND →"}
+            {expanded ? "COLLAPSE ✕ ESC" : "EXPAND →"}
           </button>
           <MonoLabel size="xs" tone={status.tone}>
             {status.text}

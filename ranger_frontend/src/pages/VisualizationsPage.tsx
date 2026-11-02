@@ -13,9 +13,15 @@
  * Reference lines on Radiation and Air Quality are ILLUSTRATIVE EXAMPLES,
  * clearly labelled — not regulatory thresholds. Real, sourced, configurable
  * thresholds belong to the future Alerts feature.
+ *
+ * 18-polish: retrofitted to the Field Console (it predated F06): Panels on the
+ * console surfaces, mono labels, the Data Explorer's filter bar, dark-themed
+ * Recharts, no page <h1> or back link (the TopBar and NavRail own those).
+ * The point count now says when the 5,000-point chart cap is hiding rows.
  */
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { Link } from "react-router-dom"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { Panel } from "@/components/console/Panel" // 18-polish
+import { MonoLabel } from "@/components/console/MonoLabel" // 18-polish
 import {
   ResponsiveContainer,
   LineChart,
@@ -28,7 +34,7 @@ import {
   ReferenceLine,
 } from "recharts"
 import { useAuthStore } from "@/stores/authStore"
-import { getChartData, getRobotOptions } from "@/api/dataLogs"
+import { getChartData, getDataLogs, getFilterOptions } from "@/api/dataLogs"
 import type { DataLog, DataSource, RobotOption } from "@/types/dataLog.types"
 import { sourceBreakdown } from "@/lib/readingProvenance" // 13
 
@@ -66,30 +72,67 @@ const fmtTooltipLabel = (ms: number): string => {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleString()
 }
 
+// ─── RANGER V3 START: 18-polish ───
+// Recharts draws SVG presentation attributes, which do not resolve CSS
+// variables — so the console tokens are repeated here as hex (index.css).
+const T = {
+  grid: "#262c36", // --color-border-strong
+  tick: "#7a828f", // --color-fg-dim
+  panel: "#111419", // --color-surface-panel
+  fg: "#cdd2da", // --color-fg-soft
+  alert: "#ff5d5d", // --color-alert
+  second: "#f5a623", // --color-warn: the second series on a chart
+}
+const TICK = { fontSize: 10, fill: T.tick, fontFamily: "IBM Plex Mono, monospace" }
+const TOOLTIP_PROPS = {
+  contentStyle: { background: T.panel, border: `1px solid ${T.grid}`, borderRadius: 6, fontSize: 11 },
+  labelStyle: { color: T.fg },
+  itemStyle: { color: T.fg },
+}
+const LEGEND_PROPS = { wrapperStyle: { fontSize: 10, color: T.tick } }
+
 function StatLine({ label, stat, unit, mix }: { label: string; stat: Stat | null; unit: string; mix?: string }) {
   if (!stat) return null
   // 13-reading-source: `mix` = the readings' own sources ("SIM 774 · MOD 10").
   // These charts had no provenance at all; an avg over modelled and simulated
   // values must at least say what it averages.
   return (
-    <span className="text-xs text-gray-500 mr-4">
-      {label}: min {stat.min.toFixed(1)} · max {stat.max.toFixed(1)} · avg{" "}
-      {stat.avg.toFixed(1)} {unit}{" "}
-      <span className="text-gray-400">(n={stat.count}{mix ? ` · ${mix}` : ""})</span>
-    </span>
+    <div className="font-mono text-[10px] text-fg-dim">
+      {label}: min {stat.min.toFixed(1)} · max {stat.max.toFixed(1)} · avg {stat.avg.toFixed(1)} {unit}{" "}
+      <span className="text-fg-faint">(n={stat.count}{mix ? ` · ${mix}` : ""})</span>
+    </div>
   )
 }
 
 function EmptyChart({ message }: { message: string }) {
   return (
     <div
-      className="w-full flex items-center justify-center text-sm text-gray-400 border border-dashed rounded"
-      style={{ height: 280 }}
+      className="w-full flex items-center justify-center text-center font-mono text-[10px] text-fg-faint border border-dashed border-border-strong rounded-md px-4"
+      style={{ height: 260 }}
     >
       {message}
     </div>
   )
 }
+
+/** One chart panel: title, note, stat lines, then the chart or its empty state. */
+function ChartPanel({ title, note, stats, children }: {
+  title: string
+  note: string
+  stats: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <Panel title={title}>
+      <div className="p-[13px] flex flex-col gap-2">
+        <p className="font-mono text-[10px] text-fg-faint leading-[1.6]">{note}</p>
+        <div className="flex flex-col gap-0.5 min-h-[14px]">{stats}</div>
+        {children}
+      </div>
+    </Panel>
+  )
+}
+// ─── RANGER V3 END: 18-polish ───
 
 const X_AXIS_PROPS = {
   dataKey: "timestamp_ms",
@@ -97,7 +140,8 @@ const X_AXIS_PROPS = {
   scale: "time" as const,
   domain: ["dataMin", "dataMax"] as [string, string],
   tickFormatter: fmtTick,
-  tick: { fontSize: 11 },
+  tick: TICK, // 18-polish
+  stroke: T.grid, // 18-polish
 }
 
 export default function VisualizationsPage() {
@@ -112,14 +156,20 @@ export default function VisualizationsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hasFetched, setHasFetched] = useState(false)
+  // 18-polish: the true row count for the same filters, so a capped chart
+  // pull can say what it is not showing.
+  const [total, setTotal] = useState<number | null>(null)
+  const [optionsFailed, setOptionsFailed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    getRobotOptions()
-      .then((r) => {
+    getFilterOptions() // 18-polish: one pull, not the deprecated wrapper
+      .then(({ robots: r }) => {
         if (!cancelled) setRobots(r)
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setOptionsFailed(true)
+      })
     return () => {
       cancelled = true
     }
@@ -129,11 +179,13 @@ export default function VisualizationsPage() {
     setLoading(true)
     setError(null)
     try {
-      const rows = await getChartData({
+      const filters = {
         robot_id: robotId || undefined,
         date_start: dateStart || undefined,
         date_end: dateEnd || undefined,
-      })
+      }
+      const [rows, page] = await Promise.all([getChartData(filters), getDataLogs(filters, 1, 1)])
+      setTotal(page.count)
       const mapped: ChartRow[] = rows
         .map((r) => ({ ...r, timestamp_ms: new Date(r.timestamp).getTime() }))
         .filter((r) => !Number.isNaN(r.timestamp_ms))
@@ -142,6 +194,7 @@ export default function VisualizationsPage() {
     } catch {
       setError("Failed to load chart data. Check that you're logged in and the backend is running.")
       setData([])
+      setTotal(null)
     } finally {
       setLoading(false)
     }
@@ -188,29 +241,21 @@ export default function VisualizationsPage() {
   const hasImu = stats.roll !== null || stats.pitch !== null
   const hasBaro = stats.pressure !== null || stats.altitude !== null
 
-  return (
-    <div className="min-h-screen p-6">
-      <div className="max-w-6xl mx-auto">
-        <header className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-semibold">Visualizations</h1>
-            <p className="text-sm text-gray-500">
-              {user?.organization?.name ?? "Organization"} sensor time-series
-            </p>
-          </div>
-          <Link to="/dashboard" className="text-sm underline text-gray-600 hover:text-gray-900">
-            ← Dashboard
-          </Link>
-        </header>
+  // ─── RANGER V3 START: 18-polish ───
+  const capped = total !== null && total > data.length
+  const margin = { top: 8, right: 12, bottom: 4, left: -8 }
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-end gap-3 mb-4 p-4 border rounded-lg bg-gray-50 dark:bg-gray-900">
-          <label className="flex flex-col text-xs gap-1">
-            <span className="text-gray-600">Robot</span>
+  return (
+    <div className="p-[18px]">
+      {/* filter bar — same controls as the Data Explorer */}
+      <Panel noHeader className="mb-3">
+        <div className="flex flex-wrap items-end gap-3 p-[14px]">
+          <label className="flex flex-col gap-1">
+            <MonoLabel size="xs" tone="dim" tracking="0.12em">Robot</MonoLabel>
             <select
               value={robotId}
               onChange={(e) => setRobotId(e.target.value)}
-              className="border rounded px-2 py-1.5 text-sm min-w-[12rem] bg-white dark:bg-gray-800"
+              className="bg-surface-input border border-border-strong rounded-md px-2.5 py-1.5 text-[12px] text-fg-soft outline-none focus:border-[var(--accent)] transition-colors min-w-[12rem]"
             >
               <option value="">All robots</option>
               {robots.map((r) => (
@@ -220,172 +265,172 @@ export default function VisualizationsPage() {
               ))}
             </select>
           </label>
-          <label className="flex flex-col text-xs gap-1">
-            <span className="text-gray-600">From</span>
+          <label className="flex flex-col gap-1">
+            <MonoLabel size="xs" tone="dim" tracking="0.12em">From</MonoLabel>
             <input
               type="date"
               value={dateStart}
               onChange={(e) => setDateStart(e.target.value)}
-              className="border rounded px-2 py-1.5 text-sm bg-white dark:bg-gray-800"
+              className="bg-surface-input border border-border-strong rounded-md px-2.5 py-1.5 text-[12px] text-fg-soft outline-none focus:border-[var(--accent)] transition-colors [color-scheme:dark]"
             />
           </label>
-          <label className="flex flex-col text-xs gap-1">
-            <span className="text-gray-600">To</span>
+          <label className="flex flex-col gap-1">
+            <MonoLabel size="xs" tone="dim" tracking="0.12em">To</MonoLabel>
             <input
               type="date"
               value={dateEnd}
               onChange={(e) => setDateEnd(e.target.value)}
-              className="border rounded px-2 py-1.5 text-sm bg-white dark:bg-gray-800"
+              className="bg-surface-input border border-border-strong rounded-md px-2.5 py-1.5 text-[12px] text-fg-soft outline-none focus:border-[var(--accent)] transition-colors [color-scheme:dark]"
             />
           </label>
           <button
             onClick={fetchData}
             disabled={loading}
-            className="px-4 py-1.5 text-sm rounded text-white disabled:opacity-50"
-            style={{ backgroundColor: accent }}
+            className="font-mono text-[10px] tracking-[0.1em] text-white px-4 py-2 rounded-md disabled:opacity-50 transition-opacity"
+            style={{ background: "var(--accent)" }}
           >
-            {loading ? "Loading…" : "Refresh"}
+            {loading ? "LOADING…" : "↻ FETCH DATA"}
           </button>
         </div>
+      </Panel>
 
+      {/* status line — says when the chart cap hides rows */}
+      <div className="mb-3 font-mono text-[10px] tracking-[0.06em]">
         {error ? (
-          <div className="text-sm text-red-600 mb-4">{error}</div>
+          <span className="text-alert">{error}</span>
         ) : (
-          <div className="text-sm text-gray-600 mb-4">
-            {data.length} data point{data.length === 1 ? "" : "s"}
-            {hasFetched && data.length === 0 ? " — adjust filters and Refresh" : ""}
-          </div>
+          <span className="text-fg-dim">
+            {loading && !hasFetched
+              ? "LOADING…"
+              : capped
+                ? `CHARTING MOST RECENT ${data.length.toLocaleString()} OF ${(total ?? 0).toLocaleString()} POINTS · NARROW THE DATES TO SEE EARLIER DATA`
+                : `${data.length.toLocaleString()} POINT${data.length === 1 ? "" : "S"}`}
+            {hasFetched && !loading && data.length === 0 ? " · ADJUST FILTERS AND FETCH" : ""}
+            {optionsFailed ? " · ROBOT LIST FAILED TO LOAD" : ""}
+          </span>
         )}
+      </div>
 
-        <div className="space-y-8">
-          {/* Radiation */}
-          <section>
-            <h2 className="text-lg font-medium">Radiation</h2>
-            <p className="text-xs text-gray-500 mb-1">
-              Counts per minute (CPM) over time. The dashed line is an{" "}
-              <em>example</em> threshold, not a regulatory limit.
-            </p>
-            <div className="mb-2">
-              <StatLine label="Radiation" stat={stats.radiation} unit="CPM" mix={mix.radiation} />
-            </div>
-            {hasRadiation ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis {...X_AXIS_PROPS} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip labelFormatter={(l) => fmtTooltipLabel(l as number)} />
-                  <Legend />
-                  <ReferenceLine
-                    y={EXAMPLE_RADIATION_THRESHOLD}
-                    stroke="#ef4444"
-                    strokeDasharray="6 4"
-                    label={{ value: "example threshold", fontSize: 10, fill: "#ef4444", position: "insideTopRight" }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="radiation_value"
-                    name="Radiation (CPM)"
-                    stroke={accent}
-                    dot={false}
-                    connectNulls={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <EmptyChart message="No radiation data for this selection." />
-            )}
-          </section>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-[14px]">
+        <ChartPanel
+          title="RADIATION"
+          note="Counts per minute (CPM) over time. The dashed line is an example threshold, not a regulatory limit."
+          stats={<StatLine label="Radiation" stat={stats.radiation} unit="CPM" mix={mix.radiation} />}
+        >
+          {hasRadiation ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={data} margin={margin}>
+                <CartesianGrid stroke={T.grid} strokeDasharray="3 3" />
+                <XAxis {...X_AXIS_PROPS} />
+                <YAxis tick={TICK} stroke={T.grid} />
+                <Tooltip {...TOOLTIP_PROPS} labelFormatter={(l) => fmtTooltipLabel(l as number)} />
+                <Legend {...LEGEND_PROPS} />
+                <ReferenceLine
+                  y={EXAMPLE_RADIATION_THRESHOLD}
+                  stroke={T.alert}
+                  strokeDasharray="6 4"
+                  label={{ value: "example threshold", fontSize: 10, fill: T.alert, position: "insideTopRight" }}
+                />
+                <Line type="monotone" dataKey="radiation_value" name="Radiation (CPM)" stroke={accent} dot={false} connectNulls={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyChart message="NO RADIATION DATA FOR THIS SELECTION" />
+          )}
+        </ChartPanel>
 
-          {/* Air Quality */}
-          <section>
-            <h2 className="text-lg font-medium">Air Quality</h2>
-            <p className="text-xs text-gray-500 mb-1">
-              Particulate matter (µg/m³) over time. The dashed line is an{" "}
-              <em>example</em> PM2.5 threshold, not a regulatory limit.
-            </p>
-            <div className="mb-2">
+        <ChartPanel
+          title="AIR QUALITY"
+          note="Particulate matter (µg/m³) over time. The dashed line is an example PM2.5 threshold, not a regulatory limit."
+          stats={
+            <>
               <StatLine label="PM2.5" stat={stats.pm25} unit="µg/m³" mix={mix.pm25} />
               <StatLine label="PM10" stat={stats.pm10} unit="µg/m³" mix={mix.pm10} />
-            </div>
-            {hasAir ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis {...X_AXIS_PROPS} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip labelFormatter={(l) => fmtTooltipLabel(l as number)} />
-                  <Legend />
-                  <ReferenceLine
-                    y={EXAMPLE_PM25_THRESHOLD}
-                    stroke="#ef4444"
-                    strokeDasharray="6 4"
-                    label={{ value: "example PM2.5 threshold", fontSize: 10, fill: "#ef4444", position: "insideTopRight" }}
-                  />
-                  <Line type="monotone" dataKey="pm25" name="PM2.5" stroke={accent} dot={false} connectNulls={false} />
-                  <Line type="monotone" dataKey="pm10" name="PM10" stroke="#f59e0b" dot={false} connectNulls={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <EmptyChart message="No air-quality data for this selection." />
-            )}
-          </section>
+            </>
+          }
+        >
+          {hasAir ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={data} margin={margin}>
+                <CartesianGrid stroke={T.grid} strokeDasharray="3 3" />
+                <XAxis {...X_AXIS_PROPS} />
+                <YAxis tick={TICK} stroke={T.grid} />
+                <Tooltip {...TOOLTIP_PROPS} labelFormatter={(l) => fmtTooltipLabel(l as number)} />
+                <Legend {...LEGEND_PROPS} />
+                <ReferenceLine
+                  y={EXAMPLE_PM25_THRESHOLD}
+                  stroke={T.alert}
+                  strokeDasharray="6 4"
+                  label={{ value: "example PM2.5 threshold", fontSize: 10, fill: T.alert, position: "insideTopRight" }}
+                />
+                <Line type="monotone" dataKey="pm25" name="PM2.5" stroke={accent} dot={false} connectNulls={false} />
+                <Line type="monotone" dataKey="pm10" name="PM10" stroke={T.second} dot={false} connectNulls={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyChart message="NO AIR-QUALITY DATA FOR THIS SELECTION" />
+          )}
+        </ChartPanel>
 
-          {/* IMU Orientation */}
-          <section>
-            <h2 className="text-lg font-medium">IMU Orientation</h2>
-            <p className="text-xs text-gray-500 mb-1">Roll and pitch (degrees) over time.</p>
-            <div className="mb-2">
+        <ChartPanel
+          title="IMU ORIENTATION"
+          note="Roll and pitch (degrees) over time."
+          stats={
+            <>
               <StatLine label="Roll" stat={stats.roll} unit="°" mix={mix.roll} />
               <StatLine label="Pitch" stat={stats.pitch} unit="°" mix={mix.pitch} />
-            </div>
-            {hasImu ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis {...X_AXIS_PROPS} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip labelFormatter={(l) => fmtTooltipLabel(l as number)} />
-                  <Legend />
-                  <Line type="monotone" dataKey="roll" name="Roll (°)" stroke={accent} dot={false} connectNulls={false} />
-                  <Line type="monotone" dataKey="pitch" name="Pitch (°)" stroke="#f59e0b" dot={false} connectNulls={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <EmptyChart message="No IMU data — this robot has no IMU/barometer sensor installed." />
-            )}
-          </section>
+            </>
+          }
+        >
+          {hasImu ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={data} margin={margin}>
+                <CartesianGrid stroke={T.grid} strokeDasharray="3 3" />
+                <XAxis {...X_AXIS_PROPS} />
+                <YAxis tick={TICK} stroke={T.grid} />
+                <Tooltip {...TOOLTIP_PROPS} labelFormatter={(l) => fmtTooltipLabel(l as number)} />
+                <Legend {...LEGEND_PROPS} />
+                <Line type="monotone" dataKey="roll" name="Roll (°)" stroke={accent} dot={false} connectNulls={false} />
+                <Line type="monotone" dataKey="pitch" name="Pitch (°)" stroke={T.second} dot={false} connectNulls={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            // 18-polish: was "this robot has no IMU/barometer sensor installed" —
+            // a claim about hardware the data cannot make. Only absence is known.
+            <EmptyChart message="NO IMU READINGS FOR THIS SELECTION" />
+          )}
+        </ChartPanel>
 
-          {/* Barometer */}
-          <section>
-            <h2 className="text-lg font-medium">Barometer</h2>
-            <p className="text-xs text-gray-500 mb-1">
-              Pressure (hPa) and altitude (m) over time, on separate axes.
-            </p>
-            <div className="mb-2">
+        <ChartPanel
+          title="BAROMETER"
+          note="Pressure (hPa) and altitude (m) over time, on separate axes."
+          stats={
+            <>
               <StatLine label="Pressure" stat={stats.pressure} unit="hPa" mix={mix.pressure} />
               <StatLine label="Altitude" stat={stats.altitude} unit="m" mix={mix.altitude} />
-            </div>
-            {hasBaro ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis {...X_AXIS_PROPS} />
-                  <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
-                  <Tooltip labelFormatter={(l) => fmtTooltipLabel(l as number)} />
-                  <Legend />
-                  <Line yAxisId="left" type="monotone" dataKey="pressure_baro" name="Pressure (hPa)" stroke={accent} dot={false} connectNulls={false} />
-                  <Line yAxisId="right" type="monotone" dataKey="altitude_baro" name="Altitude (m)" stroke="#f59e0b" dot={false} connectNulls={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <EmptyChart message="No barometer data — this robot has no IMU/barometer sensor installed." />
-            )}
-          </section>
-        </div>
+            </>
+          }
+        >
+          {hasBaro ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={data} margin={margin}>
+                <CartesianGrid stroke={T.grid} strokeDasharray="3 3" />
+                <XAxis {...X_AXIS_PROPS} />
+                <YAxis yAxisId="left" tick={TICK} stroke={T.grid} />
+                <YAxis yAxisId="right" orientation="right" tick={TICK} stroke={T.grid} />
+                <Tooltip {...TOOLTIP_PROPS} labelFormatter={(l) => fmtTooltipLabel(l as number)} />
+                <Legend {...LEGEND_PROPS} />
+                <Line yAxisId="left" type="monotone" dataKey="pressure_baro" name="Pressure (hPa)" stroke={accent} dot={false} connectNulls={false} />
+                <Line yAxisId="right" type="monotone" dataKey="altitude_baro" name="Altitude (m)" stroke={T.second} dot={false} connectNulls={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyChart message="NO BAROMETER READINGS FOR THIS SELECTION" />
+          )}
+        </ChartPanel>
       </div>
     </div>
   )
+  // ─── RANGER V3 END: 18-polish ───
 }
 // ─── RANGER V3 END: visualizations page ───

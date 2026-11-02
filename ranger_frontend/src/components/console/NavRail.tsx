@@ -4,8 +4,8 @@
  * grouped nav scoped by role, footer user block + collapse toggle.
  *
  * Nav data comes from navConfig (role-keyed). Active state is derived from
- * the current route. Items route via React Router; `built: false` items still
- * route (to the StubPage) so the nav looks complete.
+ * the current route. Items route via React Router. 18-polish: the nav lists
+ * built screens only; there are no stub entries to route.
  */
 import { NavLink, useLocation } from "react-router-dom"
 import { cn } from "@/lib/utils"

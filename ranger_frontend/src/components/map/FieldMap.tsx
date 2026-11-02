@@ -792,6 +792,18 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
     return () => cancelAnimationFrame(id)
   }, [expanded])
 
+  // ─── RANGER V3 START: 18-polish ───
+  // Esc leaves fullscreen (same behaviour as the camera panel).
+  useEffect(() => {
+    if (!expanded) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpanded(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [expanded])
+  // ─── RANGER V3 END: 18-polish ───
+
   // ── imperative handle for the Data Explorer's row-click flyTo + highlight ──
   useImperativeHandle(
     ref,
@@ -898,7 +910,7 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
                 onClick={() => setExpanded((e) => !e)}
                 className="cursor-pointer font-mono text-[9px] rounded px-2 py-[3px] border border-border-strong-2 text-fg-muted hover:text-fg-soft hover:border-[#39414f] transition-colors"
               >
-                {expanded ? "COLLAPSE ✕" : "EXPAND →"}
+                {expanded ? "COLLAPSE ✕ ESC" : "EXPAND →"}
               </button>
             ) : null}
             {headerRight}
@@ -916,7 +928,8 @@ export const FieldMap = forwardRef<FieldMapHandle, FieldMapProps>(function Field
       >
         <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
         {showOverlays && readout ? (
-          <div className="absolute left-[13px] bottom-[13px] z-[1] font-mono text-[10px] leading-[1.7] text-fg-dim bg-[rgba(8,9,11,0.6)] px-[11px] py-2 border border-border rounded-md backdrop-blur-sm pointer-events-none">
+          // 18-polish: top-left — bottom-left is the scale bar's corner
+          <div className="absolute left-[13px] top-[13px] z-[1] font-mono text-[10px] leading-[1.7] text-fg-dim bg-[rgba(8,9,11,0.6)] px-[11px] py-2 border border-border rounded-md backdrop-blur-sm pointer-events-none">
             <div className="text-fg-soft">
               {readout.id}
               {readout.call ? ` · ${readout.call}` : ""}
