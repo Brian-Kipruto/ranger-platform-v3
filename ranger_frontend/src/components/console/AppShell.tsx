@@ -35,7 +35,7 @@ function initialsFrom(username: string): string {
 
 const ROLE_LABEL: Record<ConsoleRole, string> = {
   operator: "BYTEANZA · OPERATOR",
-  client: "CLIENT · ADMIN",
+  client: "CLIENT", // 18-polish: was "CLIENT · ADMIN" — no admin surface exists
   community: "COMMUNITY · READ-ONLY",
 }
 
@@ -75,7 +75,8 @@ export default function AppShell() {
       <NavRail groups={navGroups} collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} onLogout={handleLogout} user={railUser} />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <TopBar viewCode={meta.code} viewLabel={meta.label} viewSub={meta.sub} role={role} />
+        {/* 18-polish: role pills removed from the TopBar; role shows in the rail */}
+        <TopBar viewCode={meta.code} viewLabel={meta.label} viewSub={meta.sub} />
         <div
           className="flex-1 overflow-y-auto"
           style={{

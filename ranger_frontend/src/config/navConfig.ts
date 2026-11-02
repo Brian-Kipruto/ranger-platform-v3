@@ -14,8 +14,8 @@
  * shape, routing, and rendering all stay. So this is the cheap-to-evolve
  * structure, not throwaway.
  *
- * `built: false` items route to a stub placeholder (the screen isn't
- * implemented yet) but are fully clickable, so the nav looks complete.
+ * 18-polish: only built screens appear in the nav. `built` is kept on the
+ * item shape for when unbuilt screens return behind a flag.
  */
 
 export type ConsoleRole = "operator" | "client" | "community"
@@ -49,23 +49,36 @@ export function roleFromGroups(groupNames: string[], isSuperuser: boolean): Cons
   return "community"
 }
 
-// The three screens that actually exist today.
-const BUILT_PATHS = new Set(["/dashboard", "/data", "/visualizations", "/satellite"])
+// ─── RANGER V3 START: 18-polish ───
+// The six screens that exist. S1 removed every unbuilt screen from the nav
+// (Workspace, Fleet, Alerts, AI Assistant, Admin / Billing & Team, Community)
+// rather than route it to a "not built" stub: a nav entry is a claim that the
+// screen works. StubPage and the VIEW_META entries stay in the code, unreached,
+// for when those screens are built. The Alerts badge went with its item — it
+// was a hardcoded "1", not a count.
+const BUILT_PATHS = new Set([
+  "/dashboard",
+  "/mission",
+  "/data",
+  "/visualizations",
+  "/satellite",
+  "/reports",
+])
 
 // Item factory — `path` decides built vs stub automatically.
 function item(id: string, code: string, label: string, path: string, badge?: number): NavItem {
   return { id, code, label, path, built: BUILT_PATHS.has(path), badge }
 }
 
-// Full operator/superuser nav (also the base the others trim from).
+// Operator and client see the same screens; what differs is the data
+// (org-scoped) and the capability buttons (drive / launch / generate, each
+// gated by its own permission). Kept as two constants so they can diverge.
 const OPERATOR_GROUPS: NavGroup[] = [
   {
     label: "OPERATIONS",
     items: [
       item("dashboard", "DSH", "Dashboard", "/dashboard"),
       item("mission", "MSN", "Mission Control", "/mission"),
-      item("workspace", "VIZ", "Workspace", "/workspace"),
-      item("fleet", "FLT", "Fleet", "/fleet"),
     ],
   },
   {
@@ -73,23 +86,9 @@ const OPERATOR_GROUPS: NavGroup[] = [
     items: [
       item("data", "DAT", "Data Explorer", "/data"),
       item("visualizations", "CHT", "Visualizations", "/visualizations"),
-      // F10.3. After Visualizations rather than after Alerts (where the
-      // mockup puts it): SAT belongs beside the other data-reading screens,
-      // and Alerts/Reports are the acting-on-it pair.
+      // F10.3. SAT sits beside the other data-reading screens.
       item("satellite", "SAT", "Satellite", "/satellite"),
-      item("alerts", "ALT", "Alerts", "/alerts", 1),
       item("reports", "RPT", "Reports", "/reports"),
-    ],
-  },
-  {
-    label: "INTELLIGENCE",
-    items: [item("ai", "AI", "AI Assistant", "/ai")],
-  },
-  {
-    label: "PLATFORM",
-    items: [
-      item("admin", "ADM", "Admin Console", "/admin"),
-      item("community", "PUB", "Community", "/community"),
     ],
   },
 ]
@@ -100,8 +99,6 @@ const CLIENT_GROUPS: NavGroup[] = [
     items: [
       item("dashboard", "DSH", "Dashboard", "/dashboard"),
       item("mission", "MSN", "Mission Control", "/mission"),
-      item("workspace", "VIZ", "Workspace", "/workspace"),
-      item("fleet", "FLT", "Fleet", "/fleet"),
     ],
   },
   {
@@ -109,34 +106,24 @@ const CLIENT_GROUPS: NavGroup[] = [
     items: [
       item("data", "DAT", "Data Explorer", "/data"),
       item("visualizations", "CHT", "Visualizations", "/visualizations"),
-      // F10.3. After Visualizations rather than after Alerts (where the
-      // mockup puts it): SAT belongs beside the other data-reading screens,
-      // and Alerts/Reports are the acting-on-it pair.
       item("satellite", "SAT", "Satellite", "/satellite"),
-      item("alerts", "ALT", "Alerts", "/alerts", 1),
       item("reports", "RPT", "Reports", "/reports"),
     ],
   },
-  {
-    label: "INTELLIGENCE",
-    items: [item("ai", "AI", "AI Assistant", "/ai")],
-  },
-  {
-    label: "ACCOUNT",
-    items: [item("admin", "ADM", "Billing & Team", "/admin")],
-  },
 ]
 
+// Community is out of the Rabat demo; its accounts are handled with the
+// tenancy work (no-org screen). Until then: the two real screens only.
 const COMMUNITY_GROUPS: NavGroup[] = [
   {
     label: "PUBLIC",
     items: [
-      item("community", "MAP", "Public Map", "/community"),
       item("data", "DAT", "Open Data", "/data"),
       item("reports", "RPT", "Public Reports", "/reports"),
     ],
   },
 ]
+// ─── RANGER V3 END: 18-polish ───
 
 export function navGroupsForRole(role: ConsoleRole): NavGroup[] {
   switch (role) {

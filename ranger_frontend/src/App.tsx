@@ -1,14 +1,12 @@
 // ─── RANGER V3 START: app root ───
 import { useEffect } from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
-import HomePage from "@/pages/HomePage"
 import LoginPage from "@/pages/LoginPage"
 import DashboardPage from "@/pages/DashboardPage"
 import DataExplorerPage from "@/pages/DataExplorerPage"
 import VisualizationsPage from "@/pages/VisualizationsPage"
 import SatellitePage from "@/pages/SatellitePage"
 import MissionControlPage from "@/pages/MissionControlPage"
-import StubPage from "@/pages/StubPage"
 // ─── RANGER V3 START: 16-report-download ───
 import ReportsPage from "@/pages/ReportsPage"
 // ─── RANGER V3 END: 16-report-download ───
@@ -30,8 +28,11 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Public landing — keep the Phase 1 page accessible */}
-        <Route path="/" element={<HomePage />} />
+        {/* ─── RANGER V3 START: 18-polish ─── */}
+        {/* No public landing: the Phase-1 scaffold page is retired. "/" goes
+            to the console; ProtectedRoute bounces the unauthenticated to /login. */}
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        {/* ─── RANGER V3 END: 18-polish ─── */}
 
         {/* Auth */}
         <Route path="/login" element={<LoginPage />} />
@@ -43,9 +44,9 @@ function App() {
           ProtectedRoute guards auth, AppShell provides the frame, and each
           child renders into the shell's <Outlet />.
 
-          Built screens: dashboard, data, visualizations, satellite, mission.
-          Stub screens (nav routes here, real feature later):
-          workspace, fleet, alerts, reports, ai, admin, community.
+          18-polish: only built screens are routed — dashboard, mission, data,
+          visualizations, satellite, reports. Unbuilt screens are not reachable
+          by URL either; StubPage stays in the code, unrouted.
         */}
         <Route
           element={
@@ -58,23 +59,15 @@ function App() {
           <Route path="/data" element={<DataExplorerPage />} />
           <Route path="/visualizations" element={<VisualizationsPage />} />
           <Route path="/satellite" element={<SatellitePage />} />
-
-          {/* unbuilt screens — clickable stubs */}
           <Route path="/mission" element={<MissionControlPage />} />
-          <Route path="/workspace" element={<StubPage />} />
-          <Route path="/fleet" element={<StubPage />} />
-          <Route path="/alerts" element={<StubPage />} />
           {/* ─── RANGER V3 START: 16-report-download ─── */}
           <Route path="/reports" element={<ReportsPage />} />
           {/* ─── RANGER V3 END: 16-report-download ─── */}
-          <Route path="/ai" element={<StubPage />} />
-          <Route path="/admin" element={<StubPage />} />
-          <Route path="/community" element={<StubPage />} />
         </Route>
         {/* ─── RANGER V3 END: shelled protected routes ─── */}
 
-        {/* Unknown route → home */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* Unknown route (incl. the retired stub paths) → console */}
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>
   )

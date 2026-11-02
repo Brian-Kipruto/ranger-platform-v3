@@ -16,8 +16,11 @@
  *   - Passphrase   → REAL password input (the mockup's static dots)
  *   - AUTHENTICATE → submits the form
  *   - Role-demo buttons → REAL logins via seeded accounts (config/demoAccounts)
- *   - 2FA TOTP tiles → STATIC visual chrome (no logic; wired in a future 2FA feature)
  *   - Radar rings   → static decoration
+ *
+ * 18-polish: removed chrome that claimed things the platform does not do —
+ * the 2FA TOTP tiles, the TLS badge, and the footer's invented coordinates,
+ * build hash and ENCRYPTED mark. Decoration may stay; claims may not.
  */
 import { useState } from "react"
 import { useForm } from "react-hook-form"
@@ -37,9 +40,6 @@ const loginSchema = z.object({
 })
 
 type LoginFormData = z.infer<typeof loginSchema>
-
-// Static TOTP tile display (visual chrome only — no 2FA logic yet).
-const TOTP_TILES = ["4", "1", "8", "2", "_", "_"]
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -221,10 +221,6 @@ export default function LoginPage() {
             <MonoLabel size="md" tone="soft" tracking="0.16em">
               SECURE ACCESS
             </MonoLabel>
-            <span className="font-mono text-[10px] tracking-[0.14em] text-ok flex items-center gap-1.5">
-              <StatusDot status="ok" size={6} />
-              mTLS · TLS 1.3
-            </span>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="px-5 pt-[22px] pb-5" noValidate>
@@ -276,32 +272,6 @@ export default function LoginPage() {
               <p className="mt-1 font-mono text-[10px] text-alert">{errors.password.message}</p>
             ) : null}
 
-            {/* 2FA TOTP — static visual chrome (no logic yet) */}
-            <div className="mt-[15px] flex items-center justify-between">
-              <MonoLabel size="sm" tone="dim" tracking="0.16em">
-                2FA · TOTP
-              </MonoLabel>
-              <span className="font-mono text-[10px] text-fg-faint">GOOGLE AUTH</span>
-            </div>
-            <div className="mt-2 flex gap-[7px]" aria-hidden="true">
-              {TOTP_TILES.map((d, i) => {
-                const active = i === 3
-                const filled = d !== "_"
-                return (
-                  <div
-                    key={i}
-                    className="flex-1 text-center bg-surface-input border rounded-[5px] py-[9px] font-mono text-[16px]"
-                    style={{
-                      borderColor: active ? "var(--accent)" : "var(--color-border-strong)",
-                      color: active ? "var(--accent)" : filled ? "var(--color-fg)" : "var(--color-fg-faint)",
-                    }}
-                  >
-                    {d}
-                  </div>
-                )
-              })}
-            </div>
-
             {/* AUTHENTICATE */}
             <button
               type="submit"
@@ -345,16 +315,11 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* footer telemetry strip */}
-      <div className="absolute bottom-[30px] left-0 right-0 flex items-center justify-center gap-6 font-mono text-[10px] tracking-[0.1em] text-fg-faint">
-        <span>LAT -1.8901° · LON 36.2731° · MAGADI, KE</span>
-        <span className="text-border-strong-2">|</span>
-        <span>BUILD 3.0.0-rc4 · a7f2e9c</span>
-        <span className="text-border-strong-2">|</span>
-        <span className="text-ok">● ENCRYPTED</span>
-        <span className="text-border-strong-2">|</span>
-        <span>© 2026 BYTEANZA LTD</span>
+      {/* ─── RANGER V3 START: 18-polish ─── */}
+      <div className="absolute bottom-[30px] left-0 right-0 flex items-center justify-center font-mono text-[10px] tracking-[0.1em] text-fg-faint">
+        <span>© 2026 BYTEANZA LLC</span>
       </div>
+      {/* ─── RANGER V3 END: 18-polish ─── */}
     </div>
   )
 }
